@@ -18,9 +18,9 @@ class ChatBridge:
         if self.api_key:
             try:
                 genai.configure(api_key=self.api_key)
-                # Using the specific preview model as requested
-                self.model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
-                logger.info("ChatBridge initialized successfully with model: gemini-2.5-flash-preview-09-2025")
+                # Using gemini-2.5-flash as requested
+                self.model = genai.GenerativeModel('gemini-2.5-flash')
+                logger.info("ChatBridge initialized successfully with model: gemini-2.5-flash")
             except Exception as e:
                 logger.error(f"Failed to configure Gemini: {e}")
                 self.model = None
@@ -218,4 +218,30 @@ class ChatBridge:
             return response.text
         except Exception as e:
             return f"Error communicating with Gemini: {str(e)}"
+
+    async def analyze_video(self, video_url: str) -> str:
+        """
+        Analyzes a YouTube video URL and extracts technical details.
+        """
+        if not self.model:
+            return "LLM Unavailable"
+
+        prompt = "Summarize this video and extract the key technical details."
+        
+        try:
+            logger.info(f"Analyzing video: {video_url}")
+            # Method 1: Direct YouTube URL (using file_uri)
+            # This follows the user's specific request pattern but fixed for structure
+            part = {
+                "file_data": {
+                    "mime_type": "video/mp4",
+                    "file_uri": video_url
+                }
+            }
+            response = await self.model.generate_content_async([prompt, part])
+            logger.info("Video analysis successful.")
+            return response.text
+        except Exception as e:
+            logger.error(f"Video analysis failed: {e}", exc_info=True)
+            return f"Failed to analyze video. Ensure it is public. Error: {str(e)}"
 

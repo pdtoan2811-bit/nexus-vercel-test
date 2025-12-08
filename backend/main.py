@@ -51,6 +51,10 @@ class EdgeRequest(BaseModel):
     target: str
     justification: str
 
+class TextIngestRequest(BaseModel):
+    content: str
+    module: str = "General"
+
 # --- Endpoints ---
 
 @app.get("/")
@@ -63,6 +67,129 @@ def get_full_graph():
     nodes = [{"id": n, **weaver.graph.nodes[n]} for n in weaver.graph.nodes()]
     edges = [{"source": u, "target": v, **weaver.graph.edges[u, v]} for u, v in weaver.graph.edges()]
     return {"nodes": nodes, "edges": edges}
+
+@app.post("/api/v2/ingest/text")
+async def ingest_text(payload: TextIngestRequest):
+    """
+    Ingests raw text or a YouTube URL.
+    """
+    start_time = datetime.now()
+    content = payload.content.strip()
+    module = payload.module
+    
+    # Check for YouTube URL
+    is_youtube = content.startswith("https://www.youtube.com/") or content.startswith("https://youtu.be/")
+    
+    node_title = "Text Note"
+    final_content = content
+    
+    # Extract Metadata
+    metadata = {} # Initialize metadata dict
+    
+    # 1. Try Web Scraping first if generic URL (and not YouTube)
+    if not is_youtube and (content.startswith("http://") or content.startswith("https://")):
+        try:
+            logger.info(f"Scraping webpage: {content}")
+            from core.scraper import scrape_webpage
+            scraped_data = scrape_webpage(content)
+            
+            # Update content and title from scrape
+            final_content = scraped_data["content"]
+            node_title = scraped_data["title"]
+            
+            # Store metadata
+            metadata["title"] = scraped_data["title"]
+            if scraped_data["description"]:
+                metadata["summary"] = scraped_data["description"]
+            if scraped_data["thumbnail"]:
+                metadata["thumbnail"] = scraped_data["thumbnail"]
+                
+            # Append source URL to content for reference
+            final_content = f"Source: {content}\n\n{final_content}"
+            
+        except Exception as e:
+            logger.error(f"Web scraping failed: {e}")
+            final_content = f"Source: {content}\n\n(Scraping Failed: {str(e)})"
+
+    # 2. Handle YouTube specific logic
+    if is_youtube:
+        logger.info(f"Detected YouTube URL: {content}")
+        try:
+            # Analyze video
+            analysis = await chat_bridge.analyze_video(content)
+            final_content = f"Source: {content}\n\nAnalysis:\n{analysis}"
+            node_title = "Video Analysis"
+            
+            # Extract Video ID for metadata
+            import re
+            # Match standard, short, and embed URLs
+            video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", content)
+            if video_id_match:
+                 metadata["video_id"] = video_id_match.group(1)
+                 metadata["thumbnail"] = f"https://img.youtube.com/vi/{metadata['video_id']}/mqdefault.jpg"
+                 
+        except Exception as e:
+            logger.error(f"Video analysis failed: {e}")
+            final_content = f"Source: {content}\n\n(Analysis Failed: {str(e)})"
+    
+    # Extract Metadata via AI (Refinement)
+    # We send the final content (scraped text or video analysis) to Gemini for deeper structure (tags, module, better summary)
+    extracted_meta = await chat_bridge.extract_metadata(final_content)
+    
+    # Merge AI metadata but preserve Scraped metadata if it's better (like Title)
+    # Actually, AI might generate a better summary than OG:description, so we can overwrite summary.
+    # But let's keep Title from OG if available as it's authoritative.
+    
+    current_title = metadata.get("title")
+    metadata.update(extracted_meta)
+    
+    if current_title and current_title != "Text Note":
+        metadata["title"] = current_title
+    
+    # If title wasn't extracted well, give it a timestamped default
+    if not metadata.get("title") or metadata.get("title") == "Unknown Title":
+        ts = datetime.now().strftime("%H:%M:%S")
+        metadata["title"] = f"{node_title} {ts}"
+        
+    final_meta = {"module": module, **metadata}
+    
+    # Create Node ID
+    # Use title as base for ID if available, else random
+    base_id = metadata.get("title", "NOTE").replace(" ", "_").upper()[:20]
+    node_id = f"{base_id}_{uuid4().hex[:4]}"
+    
+    try:
+        # Use a dummy filename for the ID generation logic inside add_document_node if needed, 
+        # but here we are constructing ID manually or just passing a unique string.
+        # Weaver.add_document_node takes 'filename' to generate ID.
+        # Let's just use our generated node_id as the 'filename' argument which is treated as ID base.
+        
+        # Actually Weaver logic:
+        # node_id = filename 
+        # if "-" in base_name: node_id = base_name.upper()
+        # So passing our ID as filename works.
+        
+        weaver.add_document_node(node_id, final_content, final_meta)
+        
+        # --- AUTO-LINKING ---
+        try:
+            candidates = weaver.get_node_summaries(exclude_id=node_id)
+            current_node_summary = {"id": node_id, **final_meta}
+            suggestions = await chat_bridge.detect_relationships(current_node_summary, candidates)
+            for link in suggestions:
+                target = link.get("target_id")
+                justification = link.get("justification")
+                if target and justification:
+                    weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
+        except Exception as e:
+            logger.error(f"Auto-linking failed: {e}")
+        # --------------------
+        
+        return {"status": "success", "node_id": node_id, "message": "Content ingested"}
+        
+    except Exception as e:
+        logger.error(f"Failed to ingest text: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v2/ingest/upload")
 async def upload_document(

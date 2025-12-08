@@ -24,6 +24,14 @@ export const uploadDocument = async (file, moduleName, onProgress) => {
   return response.data;
 };
 
+export const ingestText = async (content, moduleName) => {
+  const response = await axios.post(`${API_BASE}/ingest/text`, {
+    content,
+    module: moduleName
+  });
+  return response.data;
+};
+
 export const createEdge = async (source, target, justification) => {
   const response = await axios.post(`${API_BASE}/ingest/edge`, {
     source,

@@ -11,7 +11,7 @@ import ReactFlow, {
   useReactFlow
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { createEdge } from '../api';
+import { createEdge, ingestText } from '../api';
 import { getLayoutedElements } from '../utils/layout';
 import { Layout } from 'lucide-react';
 import CustomNode from './CustomNode';
@@ -41,6 +41,56 @@ const GraphCanvasContent = ({
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const reactFlowInstance = useReactFlow();
+
+  // Handle Global Paste (YouTube or Generic URL)
+  useEffect(() => {
+    const handlePaste = async (e) => {
+        // Only trigger if no input/textarea is focused
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+        const text = e.clipboardData.getData('text');
+        if (!text) return;
+
+        // Detect URL
+        // Matches http:// or https:// followed by any non-whitespace characters
+        const urlRegex = /^(https?:\/\/[^\s]+)$/;
+        const match = text.match(urlRegex);
+        
+        if (match) {
+            e.preventDefault();
+            const url = match[0];
+            
+            // Determine Type for UI Feedback
+            const isYouTube = url.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/);
+            const label = isYouTube ? 'Analyzing Video...' : 'Processing Link...';
+            
+            // Skeleton Node
+            const loadingId = 'ingesting-' + Date.now();
+            const loadingNode = {
+                id: 'processing...',
+                type: 'document',
+                data: { label: label, module: 'Ingestion', status: 'loading' },
+                position: reactFlowInstance.project({ x: window.innerWidth / 2, y: window.innerHeight / 2 }),
+                style: { opacity: 0.8 }
+            };
+            
+            // Optimistic update
+            setNodes((nds) => nds.concat(loadingNode));
+
+            try {
+                await ingestText(url, "General");
+                if (onRefresh) onRefresh();
+            } catch (err) {
+                console.error("Paste ingestion failed:", err);
+                alert(`Failed to ingest content: ${err.message}`);
+                setNodes((nds) => nds.filter(n => n.id !== 'processing...'));
+            }
+        }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [onRefresh, reactFlowInstance, setNodes]);
 
   // Initialize Graph with Auto-Layout
   useEffect(() => {
@@ -177,7 +227,8 @@ const GraphCanvasContent = ({
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        selectionMode={SelectionMode.Partial} 
+        selectionMode={SelectionMode.Partial}
+        multiSelectionKeyCode="Control"
         fitView
         className="bg-black"
       >

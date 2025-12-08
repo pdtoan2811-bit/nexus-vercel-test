@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     Upload, FileText, CheckCircle, AlertCircle, X, 
-    Minus, Maximize2, Terminal, Activity 
+    Minus, Maximize2, Terminal, Activity, Link
 } from 'lucide-react';
-import { uploadDocument } from '../api';
+import { uploadDocument, ingestText } from '../api';
 
 const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
     const [isMinimized, setIsMinimized] = useState(false);
+    const [mode, setMode] = useState('file'); // 'file' | 'text'
     const [file, setFile] = useState(null);
+    const [textContent, setTextContent] = useState('');
     const [module, setModule] = useState("General");
     const [status, setStatus] = useState("idle"); 
     const [progress, setProgress] = useState(0);
@@ -37,36 +39,74 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
     };
 
     const handleUpload = async () => {
-        if (!file) return;
+        if (mode === 'file' && !file) return;
+        if (mode === 'text' && !textContent.trim()) return;
+
+        // Auto-detect YouTube URL
+        const isYouTube = textContent.trim().match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/);
+
         setStatus("uploading");
         setProgress(0);
-        addLog(`Starting upload for ${file.name}...`, 'info');
+        
+        if (mode === 'file') {
+            addLog(`Starting upload for ${file.name}...`, 'info');
+        } else if (isYouTube) {
+            addLog(`Detected YouTube URL. Analyzing video...`, 'info');
+        } else {
+            addLog(`Ingesting text content...`, 'info');
+        }
 
         // Create a timeout promise
         const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Request timed out (10s)")), 10000)
+            setTimeout(() => reject(new Error("Request timed out (60s)")), 60000)
         );
 
         try {
-            // Race between upload and timeout
-            const result = await Promise.race([
-                uploadDocument(file, module, (percent) => {
-                    setProgress(percent);
-                    if (percent % 20 === 0 && percent < 100) {
-                        addLog(`Upload progress: ${percent}%`);
-                    }
-                }),
-                timeoutPromise
-            ]);
+            let result;
+            if (mode === 'file') {
+                 result = await Promise.race([
+                    uploadDocument(file, module, (percent) => {
+                        setProgress(percent);
+                        if (percent % 20 === 0 && percent < 100) {
+                            addLog(`Upload progress: ${percent}%`);
+                        }
+                    }),
+                    timeoutPromise
+                ]);
+            } else {
+                // Text/URL Mode
+                // Indeterminate progress for text/video ingestion
+                const progressInterval = setInterval(() => {
+                    setProgress(p => Math.min(p + 5, 95));
+                }, 800);
+                
+                try {
+                    result = await Promise.race([
+                        ingestText(textContent, module),
+                        timeoutPromise
+                    ]);
+                    clearInterval(progressInterval);
+                } catch (e) {
+                    clearInterval(progressInterval);
+                    throw e;
+                }
+            }
             
             setStatus("success");
             setProgress(100);
-            addLog(`Upload complete. Node ID: ${result.node_id}`, 'success');
+            
+            if (isYouTube) {
+                addLog(`Video analysis complete. Node ID: ${result.node_id}`, 'success');
+            } else {
+                addLog(`Ingestion complete. Node ID: ${result.node_id}`, 'success');
+            }
+            
             addLog(`Graph updated.`, 'success');
             onUploadSuccess();
             
             setTimeout(() => {
                 setFile(null);
+                setTextContent('');
                 setStatus("idle");
                 setProgress(0);
             }, 3000);
@@ -81,6 +121,21 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
             }
         }
     };
+
+    // Watch for paste in text area to auto-trigger upload if it's a YouTube link?
+    // User requested "immediately create a node skeleton" - this is complex without backend async status.
+    // For now, let's implement the UI feedback requested: 
+    // "progress whenever I paste a youtube url" -> Detect paste -> set status -> start ingest
+    
+    const handleTextPaste = (e) => {
+        const text = e.clipboardData.getData('text');
+        if (text && text.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/)) {
+            // It's a YouTube link. 
+            // We can auto-set the value and maybe even auto-submit if desired, 
+            // but for now let's just make sure the UI reflects it's a video.
+            addLog("YouTube link detected. Ready to ingest.", "info");
+        }
+    }
 
     // Minimized View
     if (isMinimized) {
@@ -146,26 +201,62 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
             </div>
 
             <div className="p-4 flex-1 overflow-y-auto space-y-4">
-                {/* File Drop Area */}
-                <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
-                    file 
-                        ? 'border-blue-500 bg-blue-500/10' 
-                        : 'border-gray-600 hover:border-gray-500 hover:bg-gray-700/30'
-                }`}>
-                    <input 
-                        type="file" 
-                        id="file-upload" 
-                        className="hidden" 
-                        onChange={handleFileChange}
-                        accept=".txt,.md,.json"
-                    />
-                    <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2 w-full">
-                        <FileText className={`w-8 h-8 ${file ? 'text-blue-400' : 'text-gray-400'}`} />
-                        <span className="text-xs text-gray-300 font-medium truncate max-w-full px-2">
-                            {file ? file.name : "Select Document (MD/TXT)"}
-                        </span>
-                    </label>
+                {/* Mode Toggles */}
+                <div className="flex rounded-md bg-gray-900 p-1 border border-gray-700">
+                    <button 
+                        onClick={() => setMode('file')}
+                        className={`flex-1 text-xs py-1.5 rounded flex items-center justify-center gap-2 transition-all ${
+                            mode === 'file' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                        }`}
+                    >
+                        <FileText className="w-3 h-3" /> File Upload
+                    </button>
+                    <button 
+                        onClick={() => setMode('text')}
+                        className={`flex-1 text-xs py-1.5 rounded flex items-center justify-center gap-2 transition-all ${
+                            mode === 'text' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                        }`}
+                    >
+                        <Link className="w-3 h-3" /> Text / Link
+                    </button>
                 </div>
+
+                {/* Input Area */}
+                {mode === 'file' ? (
+                    <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
+                        file 
+                            ? 'border-blue-500 bg-blue-500/10' 
+                            : 'border-gray-600 hover:border-gray-500 hover:bg-gray-700/30'
+                    }`}>
+                        <input 
+                            type="file" 
+                            id="file-upload" 
+                            className="hidden" 
+                            onChange={handleFileChange}
+                            accept=".txt,.md,.json"
+                        />
+                        <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2 w-full">
+                            <FileText className={`w-8 h-8 ${file ? 'text-blue-400' : 'text-gray-400'}`} />
+                            <span className="text-xs text-gray-300 font-medium truncate max-w-full px-2">
+                                {file ? file.name : "Select Document (MD/TXT)"}
+                            </span>
+                        </label>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                         <textarea
+                            value={textContent}
+                            onChange={(e) => setTextContent(e.target.value)}
+                            onPaste={handleTextPaste}
+                            placeholder="Paste text or YouTube URL here..."
+                            className="w-full h-32 bg-black/20 border border-gray-600 rounded p-2 text-xs text-white focus:border-blue-500 outline-none resize-none font-mono"
+                        />
+                        <div className="text-[10px] text-gray-500 flex items-center gap-1">
+                            <Activity className="w-3 h-3" />
+                            Supported: Raw text, YouTube URLs
+                        </div>
+                    </div>
+                )}
 
                 {/* Controls */}
                 <div className="space-y-3">
@@ -183,7 +274,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                     {status === 'uploading' && (
                         <div className="space-y-1">
                             <div className="flex justify-between text-xs text-gray-400">
-                                <span>Uploading...</span>
+                                <span>Processing...</span>
                                 <span>{progress}%</span>
                             </div>
                             <div className="h-1.5 w-full bg-gray-700 rounded-full overflow-hidden">
@@ -197,7 +288,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
 
                     <button 
                         onClick={handleUpload} 
-                        disabled={!file || status === 'uploading'}
+                        disabled={(mode === 'file' && !file) || (mode === 'text' && !textContent.trim()) || status === 'uploading'}
                         className={`w-full py-2 rounded text-sm font-semibold transition-all ${
                             status === 'success' 
                                 ? 'bg-green-600 text-white cursor-default'
@@ -211,7 +302,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                         ) : status === 'error' ? (
                             <span className="flex items-center justify-center gap-2"><AlertCircle className="w-4 h-4" /> Retry</span>
                         ) : (
-                            'Ingest Document'
+                            'Ingest Content'
                         )}
                     </button>
                 </div>
