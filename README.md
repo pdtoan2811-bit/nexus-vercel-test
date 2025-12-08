@@ -8,6 +8,19 @@ This is a functional prototype of the Nexus Core v2.0 Contextual Chat Module, im
 - Node.js 16+
 - Google Gemini API Key (Required for Chat features)
 
+## Configuration
+
+Before running the application, you need to set up your Google Gemini API key:
+
+1. Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create a `.env` file in the `backend/` directory:
+   ```
+   GEMINI_API_KEY=your_actual_api_key_here
+   ```
+3. Alternatively, you can set the `GEMINI_API_KEY` environment variable in your system.
+
+**Note:** The `.env` file is already in `.gitignore` and will not be committed to the repository.
+
 ## Project Structure
 
 - `backend/`: FastAPI application with NetworkX graph logic.

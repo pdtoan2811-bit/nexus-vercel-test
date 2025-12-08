@@ -44,8 +44,23 @@ if not exist "venv" (
     pip install -r requirements.txt
 )
 
+:: Check for .env file or environment variable
+set "API_KEY_SET=0"
+if exist "%PROJECT_ROOT%backend\.env" (
+    echo [INFO] Found .env file in backend directory.
+    set "API_KEY_SET=1"
+) else (
+    if defined GEMINI_API_KEY (
+        echo [INFO] GEMINI_API_KEY found in environment.
+        set "API_KEY_SET=1"
+    ) else (
+        echo [WARNING] GEMINI_API_KEY not found. Please create backend\.env file or set GEMINI_API_KEY environment variable.
+        echo [WARNING] LLM features will be disabled. See README.md for setup instructions.
+    )
+)
+
 :: Use /D to set working directory safely
-start "Nexus Backend" /D "%PROJECT_ROOT%backend" cmd /k "venv\Scripts\activate && set GEMINI_API_KEY=AIzaSyCorI4QWuvabXL2jQicc_GgpPpOfJ2tDiI && uvicorn main:app --reload"
+start "Nexus Backend" /D "%PROJECT_ROOT%backend" cmd /k "venv\Scripts\activate && uvicorn main:app --reload"
 
 :: ------------------------------------------------------------------
 :: 3. FRONTEND LAUNCH

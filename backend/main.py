@@ -7,6 +7,10 @@ import logging
 import shutil
 import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from core.graph_logic import Weaver
 from core.chat_bridge import ChatBridge
