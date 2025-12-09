@@ -5,11 +5,11 @@ import IngestionWidget from './components/IngestionWidget';
 import EdgeInspector from './components/EdgeInspector';
 import ContextRegistryPanel from './components/ContextRegistryPanel';
 import EdgeCreationModal from './components/EdgeCreationModal';
-import { getGraph, calculateContext, sendMessage, createEdge, getSettings, ingestText } from './api';
+import { getGraph, calculateContext, sendMessage, createEdge, getSettings, ingestText, manualSave, exportCanvas } from './api';
 import PromptConfigModal from './components/PromptConfigModal';
 import SettingsModal from './components/SettingsModal';
 import CanvasManager from './components/CanvasManager';
-import { PlusCircle, Settings, BookOpen, Sliders, LayoutGrid } from 'lucide-react';
+import { PlusCircle, Settings, BookOpen, Sliders, LayoutGrid, Save, Download, CheckCircle2 } from 'lucide-react';
 
 function App() {
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
@@ -26,6 +26,7 @@ function App() {
   const [isCanvasManagerOpen, setIsCanvasManagerOpen] = useState(false);
   const [appSettings, setAppSettings] = useState({});
   const [documentViewNode, setDocumentViewNode] = useState(null); // For document view mode
+  const [saveStatus, setSaveStatus] = useState({ saved: false, message: '', timestamp: null });
 
   // Layout State
   const [chatWidth, setChatWidth] = useState(40); // Percentage
@@ -63,11 +64,68 @@ function App() {
       }
   };
 
+  // Manual Save Handler
+  // Manual Save Handler
+  const handleManualSave = useCallback(async () => {
+      try {
+          const result = await manualSave();
+          setSaveStatus({
+              saved: true,
+              message: result.message,
+              timestamp: new Date().toLocaleTimeString()
+          });
+          // Clear status after 3 seconds
+          setTimeout(() => {
+              setSaveStatus({ saved: false, message: '', timestamp: null });
+          }, 3000);
+      } catch (error) {
+          console.error("Save failed:", error);
+          setSaveStatus({
+              saved: false,
+              message: error.message || "Save failed",
+              timestamp: null
+          });
+          setTimeout(() => {
+              setSaveStatus({ saved: false, message: '', timestamp: null });
+          }, 3000);
+      }
+  }, []);
+
+  const handleExport = useCallback(async () => {
+      try {
+          await exportCanvas();
+          setSaveStatus({
+              saved: true,
+              message: "Backup exported successfully",
+              timestamp: new Date().toLocaleTimeString()
+          });
+          setTimeout(() => {
+              setSaveStatus({ saved: false, message: '', timestamp: null });
+          }, 3000);
+      } catch (error) {
+          console.error("Export failed:", error);
+          alert("Failed to export backup: " + (error.message || "Unknown error"));
+      }
+  }, []);
+
   // Initial Load
   useEffect(() => {
     fetchGraph();
     fetchSettings();
   }, []);
+
+  useEffect(() => {
+    // Keyboard shortcut for save (Ctrl+S)
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleManualSave();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleManualSave]);
 
   // Reload settings when modal closes (in case they changed)
   useEffect(() => {
@@ -300,35 +358,60 @@ function App() {
         className={`h-full relative transition-all duration-300 ${isChatMaximized ? 'opacity-0 overflow-hidden' : 'opacity-100'}`}
       >
         {/* Header Actions - Absolute positioned on top of graph */}
-        <div className="absolute top-6 right-6 z-20 flex gap-2">
-            <button 
-                onClick={() => setIsCanvasManagerOpen(true)}
-                className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
-                title="Manage Canvases"
-            >
-                <LayoutGrid className="w-5 h-5" />
-            </button>
-            <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
-                title="System Settings"
-            >
-                <Sliders className="w-5 h-5" />
-            </button>
-            <button 
-                onClick={() => setIsRegistryOpen(!isRegistryOpen)}
-                className={`p-2 rounded-xl shadow-lg border border-white/10 transition-colors ${isRegistryOpen ? 'bg-blue-600 text-white' : 'bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300'}`}
-                title="Context Registry"
-            >
-                <BookOpen className="w-5 h-5" />
-            </button>
-            <button 
-                onClick={() => setIsPromptConfigOpen(true)}
-                className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
-                title="Prompt Configuration"
-            >
-                <Settings className="w-5 h-5" />
-            </button>
+        <div className="absolute top-6 right-6 z-20 flex flex-col items-end gap-2">
+            {/* Save Status Indicator */}
+            {saveStatus.saved && (
+                <div className="bg-green-600/90 backdrop-blur text-white px-3 py-1.5 rounded-lg shadow-lg border border-green-500/30 flex items-center gap-2 text-xs font-medium animate-in fade-in slide-in-from-top-2">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{saveStatus.message}</span>
+                    {saveStatus.timestamp && <span className="text-green-200">({saveStatus.timestamp})</span>}
+                </div>
+            )}
+            
+            <div className="flex gap-2">
+                <button 
+                    onClick={handleManualSave}
+                    className="bg-green-600/80 backdrop-blur hover:bg-green-500 text-white p-2 rounded-xl shadow-lg border border-green-500/30 transition-colors"
+                    title="Save All Data (Ctrl+S)"
+                >
+                    <Save className="w-5 h-5" />
+                </button>
+                <button 
+                    onClick={handleExport}
+                    className="bg-purple-600/80 backdrop-blur hover:bg-purple-500 text-white p-2 rounded-xl shadow-lg border border-purple-500/30 transition-colors"
+                    title="Export Backup (ZIP)"
+                >
+                    <Download className="w-5 h-5" />
+                </button>
+                <button 
+                    onClick={() => setIsCanvasManagerOpen(true)}
+                    className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
+                    title="Manage Canvases"
+                >
+                    <LayoutGrid className="w-5 h-5" />
+                </button>
+                <button 
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
+                    title="System Settings"
+                >
+                    <Sliders className="w-5 h-5" />
+                </button>
+                <button 
+                    onClick={() => setIsRegistryOpen(!isRegistryOpen)}
+                    className={`p-2 rounded-xl shadow-lg border border-white/10 transition-colors ${isRegistryOpen ? 'bg-blue-600 text-white' : 'bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300'}`}
+                    title="Context Registry"
+                >
+                    <BookOpen className="w-5 h-5" />
+                </button>
+                <button 
+                    onClick={() => setIsPromptConfigOpen(true)}
+                    className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
+                    title="Prompt Configuration"
+                >
+                    <Settings className="w-5 h-5" />
+                </button>
+            </div>
         </div>
 
         {/* Floating Action Button for Upload */}

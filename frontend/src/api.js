@@ -183,3 +183,42 @@ export const sendMessage = async (sessionId, userPrompt) => {
     });
     return response.data;
 };
+
+export const manualSave = async () => {
+    const response = await axios.post(`${API_BASE_URL}/save`);
+    return response.data;
+};
+
+export const exportCanvas = async () => {
+    const response = await axios.get(`${API_BASE_URL}/export`, {
+        responseType: 'blob'
+    });
+    
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // Get filename from Content-Disposition header or use default
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = 'nexus_backup.zip';
+    if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+        if (filenameMatch) {
+            filename = filenameMatch[1];
+        }
+    }
+    
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    
+    return { status: 'success', message: 'Export downloaded' };
+};
+
+export const updateNodePositions = async (positions) => {
+    const response = await axios.post(`${API_BASE_URL}/nodes/positions`, positions);
+    return response.data;
+};

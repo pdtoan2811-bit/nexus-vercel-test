@@ -1,11 +1,13 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 import logging
 import shutil
 import os
+import json
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -104,9 +106,26 @@ def delete_canvas(canvas_id: str):
 @app.get("/api/v2/graph")
 def get_full_graph():
     """Returns the full graph for initial rendering."""
-    nodes = [{"id": n, **weaver.graph.nodes[n]} for n in weaver.graph.nodes()]
+    nodes = []
+    for n in weaver.graph.nodes():
+        node_data = dict(weaver.graph.nodes[n])
+        # Include position if it exists
+        if "position" in node_data:
+            nodes.append({"id": n, **node_data})
+        else:
+            nodes.append({"id": n, **node_data})
     edges = [{"source": u, "target": v, **weaver.graph.edges[u, v]} for u, v in weaver.graph.edges()]
     return {"nodes": nodes, "edges": edges}
+
+@app.post("/api/v2/nodes/positions")
+def update_node_positions(positions: Dict[str, Dict[str, float]]):
+    """
+    Updates positions for multiple nodes.
+    positions: { node_id: { x: float, y: float }, ... }
+    """
+    if weaver.update_node_positions(positions):
+        return {"status": "success", "message": "Positions updated"}
+    raise HTTPException(status_code=400, detail="Failed to update positions")
 
 @app.get("/api/v2/context")
 def get_context_registry():
@@ -123,6 +142,108 @@ def update_settings(updates: Dict[str, Any]):
     """Updates the global application settings."""
     weaver.settings.update_settings(updates)
     return {"status": "success", "message": "Settings updated", "settings": weaver.settings.settings}
+
+@app.post("/api/v2/save")
+def manual_save():
+    """
+    Manually saves all canvas data: graph, context, chat history, and settings.
+    """
+    save_status = weaver.save_all()
+    if save_status["errors"]:
+        return {
+            "status": "partial",
+            "message": f"Saved: {', '.join(save_status['saved'])}, Errors: {', '.join(save_status['errors'])}",
+            "save_status": save_status
+        }
+    return {
+        "status": "success",
+        "message": f"All data saved successfully: {', '.join(save_status['saved'])}",
+        "save_status": save_status
+    }
+
+@app.get("/api/v2/export")
+def export_canvas():
+    """
+    Exports all canvas data as a ZIP file for backup.
+    Includes: graph, context, chat history, settings, and thumbnails.
+    """
+    import zipfile
+    import tempfile
+    from pathlib import Path
+    
+    # Import constants from graph_logic
+    from core.graph_logic import CANVASES_DIR, DATA_DIR, SETTINGS_FILE, CANVAS_INDEX_FILE
+    
+    canvas_id = weaver.active_canvas_id
+    canvas_dir = Path(CANVASES_DIR) / canvas_id
+    thumbnails_dir = Path(DATA_DIR) / "thumbnails"
+    
+    # Create temporary zip file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_filename = f"nexus_backup_{canvas_id}_{timestamp}.zip"
+    zip_path = Path(DATA_DIR) / zip_filename
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Add graph.json
+            graph_file = canvas_dir / "graph.json"
+            if graph_file.exists():
+                zipf.write(graph_file, f"{canvas_id}/graph.json")
+            
+            # Add context.json
+            context_file = canvas_dir / "context.json"
+            if context_file.exists():
+                zipf.write(context_file, f"{canvas_id}/context.json")
+            
+            # Add chat.json
+            chat_file = canvas_dir / "chat.json"
+            if chat_file.exists():
+                zipf.write(chat_file, f"{canvas_id}/chat.json")
+            
+            # Add settings.json
+            settings_file = Path(SETTINGS_FILE)
+            if settings_file.exists():
+                zipf.write(settings_file, "settings.json")
+            
+            # Add canvas index
+            canvas_index_file = Path(CANVAS_INDEX_FILE)
+            if canvas_index_file.exists():
+                zipf.write(canvas_index_file, "canvases.json")
+            
+            # Add all thumbnails for this canvas (filter by node IDs in graph)
+            if thumbnails_dir.exists():
+                node_ids = set(weaver.graph.nodes())
+                for thumb_file in thumbnails_dir.glob("*"):
+                    # Check if thumbnail belongs to any node in current canvas
+                    # Thumbnail format: {node_id}_{uuid}.{ext}
+                    if any(node_id in thumb_file.stem for node_id in node_ids):
+                        zipf.write(thumb_file, f"thumbnails/{thumb_file.name}")
+            
+            # Add metadata file
+            metadata = {
+                "export_timestamp": datetime.now().isoformat(),
+                "canvas_id": canvas_id,
+                "canvas_name": weaver.canvas_registry.index["canvases"].get(canvas_id, {}).get("name", "Unknown"),
+                "node_count": len(weaver.graph.nodes()),
+                "edge_count": len(weaver.graph.edges()),
+                "version": "2.0.4"
+            }
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+                json.dump(metadata, tmp, indent=2)
+                tmp.flush()
+                zipf.write(tmp.name, "metadata.json")
+                os.unlink(tmp.name)
+        
+        logger.info(f"Exported canvas {canvas_id} to {zip_filename}")
+        return FileResponse(
+            zip_path,
+            media_type="application/zip",
+            filename=zip_filename,
+            headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+        )
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.post("/api/v2/ingest/text")
 async def ingest_text(payload: TextIngestRequest):

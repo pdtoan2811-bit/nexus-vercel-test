@@ -119,6 +119,7 @@ class CanvasRegistry:
              c_copy["is_active"] = (c["id"] == active_id)
              canvases.append(c_copy)
         return canvases
+        return canvases
 
     def get_active_id(self) -> str:
         return self.index.get("active_id", "default")
@@ -336,8 +337,56 @@ class Weaver:
             with open(self.graph_file, 'w') as f:
                 json.dump(data, f, indent=2)
             logger.info(f"Graph saved to {self.graph_file}")
+            # Update canvas last_modified timestamp
+            if self.active_canvas_id in self.canvas_registry.index["canvases"]:
+                self.canvas_registry.index["canvases"][self.active_canvas_id]["last_modified"] = datetime.now().isoformat()
+                self.canvas_registry._save_index(self.canvas_registry.index)
         except Exception as e:
             logger.error(f"Failed to save graph: {e}")
+    
+    def save_all(self) -> Dict[str, Any]:
+        """
+        Manually saves all canvas data: graph, context, chat history, and settings.
+        Returns save status information.
+        """
+        save_status = {
+            "timestamp": datetime.now().isoformat(),
+            "canvas_id": self.active_canvas_id,
+            "saved": [],
+            "errors": []
+        }
+        
+        try:
+            # Save graph
+            self.save_graph()
+            save_status["saved"].append("graph")
+        except Exception as e:
+            save_status["errors"].append(f"graph: {str(e)}")
+        
+        try:
+            # Save context
+            self.registry._save_context(self.registry.context)
+            save_status["saved"].append("context")
+        except Exception as e:
+            save_status["errors"].append(f"context: {str(e)}")
+        
+        try:
+            # Save chat history (if it exists)
+            if hasattr(self, 'chat_history'):
+                self.save_chat_history(self.chat_history)
+                save_status["saved"].append("chat_history")
+        except Exception as e:
+            save_status["errors"].append(f"chat_history: {str(e)}")
+        
+        try:
+            # Save settings
+            self.settings._save_settings(self.settings.settings)
+            save_status["saved"].append("settings")
+        except Exception as e:
+            save_status["errors"].append(f"settings: {str(e)}")
+        
+        logger.info(f"Manual save completed: {save_status}")
+        return save_status
 
     def _load_chat_history(self) -> List[Dict]:
         """Loads chat history from disk."""
@@ -447,6 +496,20 @@ class Weaver:
             self.save_graph()
             return True
         return False
+    
+    def update_node_positions(self, positions: Dict[str, Dict[str, float]]) -> bool:
+        """
+        Updates positions for multiple nodes at once.
+        positions: { node_id: { x: float, y: float }, ... }
+        """
+        updated = False
+        for node_id, pos in positions.items():
+            if self.graph.has_node(node_id):
+                self.graph.nodes[node_id]["position"] = pos
+                updated = True
+        if updated:
+            self.save_graph()
+        return updated
 
     def delete_edge(self, source: str, target: str) -> bool:
         """Deletes an edge."""

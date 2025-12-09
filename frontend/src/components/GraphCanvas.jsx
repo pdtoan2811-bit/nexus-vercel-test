@@ -13,7 +13,7 @@ import ReactFlow, {
   ConnectionLineType
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { createEdge, ingestText, getContext, uploadImage } from '../api';
+import { createEdge, ingestText, getContext, uploadImage, updateNodePositions } from '../api';
 import { getLayoutedElements } from '../utils/layout';
 import { Layout } from 'lucide-react';
 import CustomNode from './CustomNode';
@@ -50,6 +50,10 @@ const GraphCanvasContent = ({
   // Ref to track if we need to update styles
   const prevSelectionRef = useRef(selectedNodeIds);
   const prevContextRef = useRef(contextNodes);
+  
+  // Debounced position save
+  const positionSaveTimeoutRef = useRef(null);
+  const hasInitialLayoutRef = useRef(false);
 
   // Fetch context registry for colors
   useEffect(() => {
@@ -175,7 +179,7 @@ const GraphCanvasContent = ({
     return () => window.removeEventListener('paste', handlePaste);
   }, [onRefresh, reactFlowInstance, setNodes]);
 
-  // Initialize Graph with Auto-Layout (Only when initial data actually changes)
+  // Initialize Graph - Only apply layout to nodes without saved positions
   useEffect(() => {
     if (initialNodes && initialNodes.length > 0) { 
         // Create raw nodes first
@@ -197,10 +201,10 @@ const GraphCanvasContent = ({
             }
 
             return {
-            id: n.id,
+                id: n.id,
                 data: { label: n.id, ...n, color: nodeColor },
-            type: 'document', // Use our custom type
-            position: n.position || { x: 0, y: 0 }
+                type: 'document', // Use our custom type
+                position: n.position || null // Keep saved position if exists
             };
         });
 
@@ -214,11 +218,28 @@ const GraphCanvasContent = ({
             animated: false
         }));
 
-        // Apply Layout if it's a fresh load (or force it)
-        const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(rawNodes, rawEdges);
+        // Separate nodes with and without positions
+        const nodesWithPositions = rawNodes.filter(n => n.position && n.position.x !== 0 && n.position.y !== 0);
+        const nodesWithoutPositions = rawNodes.filter(n => !n.position || (n.position.x === 0 && n.position.y === 0));
 
-        setNodes(layoutedNodes);
-        setEdges(layoutedEdges);
+        // Only apply layout to nodes without positions
+        let finalNodes = [...nodesWithPositions];
+        if (nodesWithoutPositions.length > 0) {
+            const { nodes: layoutedNodes } = getLayoutedElements(nodesWithoutPositions, rawEdges);
+            finalNodes = [...finalNodes, ...layoutedNodes];
+        }
+
+        setNodes(finalNodes);
+        setEdges(rawEdges);
+        prevNodesRef.current = finalNodes;
+        hasInitialLayoutRef.current = true;
+        
+        // Fit view only on initial load if there are new nodes without positions
+        if (nodesWithoutPositions.length > 0) {
+          setTimeout(() => {
+            reactFlowInstance.fitView({ padding: 0.2, duration: 400 });
+          }, 100);
+        }
     }
   }, [initialNodes, initialEdges, setNodes, setEdges, contextRegistry]);
 
@@ -266,15 +287,76 @@ const GraphCanvasContent = ({
     }
   }, [onConnectRequest]);
 
+  // Save positions when nodes are moved (debounced)
+  const savePositions = useCallback(async (nodesToSave) => {
+    if (!hasInitialLayoutRef.current) return; // Don't save during initial load
+    
+    // Clear previous timeout
+    if (positionSaveTimeoutRef.current) {
+      clearTimeout(positionSaveTimeoutRef.current);
+    }
+    
+    // Debounce: Save after 1 second of no movement
+    positionSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const positions = {};
+        nodesToSave.forEach(node => {
+          if (node.position && typeof node.position.x === 'number' && typeof node.position.y === 'number') {
+            positions[node.id] = {
+              x: node.position.x,
+              y: node.position.y
+            };
+          }
+        });
+        
+        if (Object.keys(positions).length > 0) {
+          await updateNodePositions(positions);
+          console.log(`Saved positions for ${Object.keys(positions).length} nodes`);
+        }
+      } catch (error) {
+        console.error("Failed to save positions:", error);
+      }
+    }, 1000);
+  }, []);
+
+  // Track previous nodes for position comparison
+  const prevNodesRef = useRef([]);
+
+  // Handle node changes (including position changes)
+  const handleNodesChange = useCallback((changes) => {
+    onNodesChange(changes);
+    
+    // Check if any change is a position change
+    const hasPositionChange = changes.some(change => change.type === 'position');
+    
+    if (hasPositionChange && hasInitialLayoutRef.current) {
+      // Use a small delay to let React Flow update the nodes state
+      setTimeout(() => {
+        setNodes((currentNodes) => {
+          // Save positions for all nodes that have valid positions
+          savePositions(currentNodes);
+          prevNodesRef.current = currentNodes;
+          return currentNodes;
+        });
+      }, 100);
+    }
+  }, [onNodesChange, savePositions, setNodes]);
+
   const handleLayout = useCallback(() => {
+    // Apply layout to all nodes
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
       nodes,
       edges
     );
     setNodes([...layoutedNodes]);
     setEdges([...layoutedEdges]);
-    setTimeout(() => reactFlowInstance.fitView(), 10);
-  }, [nodes, edges, setNodes, setEdges, reactFlowInstance]);
+    
+    // Save the new positions
+    setTimeout(() => {
+      savePositions(layoutedNodes);
+      reactFlowInstance.fitView({ padding: 0.1, duration: 400 });
+    }, 100);
+  }, [nodes, edges, setNodes, setEdges, reactFlowInstance, savePositions]);
 
   return (
     <div className="w-full h-full bg-black relative font-sans">
@@ -307,6 +389,14 @@ const GraphCanvasContent = ({
             ))}
             <div className="w-px h-4 bg-white/10 mx-1" />
             <button 
+                onClick={handleLayout}
+                className="px-3 py-1.5 bg-gray-700/80 hover:bg-gray-600 text-white text-xs font-semibold rounded-lg shadow-lg transition-all flex items-center gap-1.5"
+                title="Auto-arrange all nodes"
+            >
+                <Layout className="w-3.5 h-3.5" />
+                Layout
+            </button>
+            <button 
                 onClick={onTriggerContext}
                 className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg shadow-lg transition-all"
             >
@@ -318,7 +408,7 @@ const GraphCanvasContent = ({
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChangeCallback}
         onEdgeClick={onEdgeClick}
@@ -327,7 +417,7 @@ const GraphCanvasContent = ({
         edgeTypes={edgeTypes}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode="Control"
-        fitView
+        fitView={false}
         className="bg-black"
         connectionMode={ConnectionMode.Loose}
         connectionLineType={ConnectionLineType.SmoothStep}
@@ -336,6 +426,8 @@ const GraphCanvasContent = ({
             strokeWidth: 3,
             strokeDasharray: '5,5',
         }}
+        nodesDraggable={true}
+        nodesConnectable={true}
       >
         <Background color="#222" gap={20} size={1} />
         <Controls className="bg-gray-900 border-white/10 text-gray-400" />

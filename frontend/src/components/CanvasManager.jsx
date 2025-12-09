@@ -7,6 +7,7 @@ const CanvasManager = ({ isOpen, onClose, onSwitch }) => {
     const [activeId, setActiveId] = useState('default');
     const [newCanvasName, setNewCanvasName] = useState('');
     const [isCreating, setIsCreating] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -17,34 +18,54 @@ const CanvasManager = ({ isOpen, onClose, onSwitch }) => {
     const fetchCanvases = async () => {
         try {
             const list = await getCanvases();
-            setCanvases(list);
+            console.log("Fetched canvases:", list);
+            setCanvases(list || []);
             
             // Backend now flags the active canvas
-            const current = list.find(c => c.is_active);
+            const current = list?.find(c => c.is_active);
             if (current) {
                 setActiveId(current.id);
             }
         } catch (error) {
             console.error("Failed to fetch canvases", error);
+            alert("Failed to load canvases: " + (error.message || "Unknown error"));
         }
     };
 
     const handleCreate = async () => {
-        if (!newCanvasName.trim()) return;
+        if (!newCanvasName.trim()) {
+            alert("Please enter a canvas name");
+            return;
+        }
+        
+        setIsLoading(true);
         try {
-            const response = await createCanvas(newCanvasName);
-            // response.canvas_id contains the new ID
-            // The backend automatically switches to it.
+            console.log("Creating canvas with name:", newCanvasName.trim());
+            const response = await createCanvas(newCanvasName.trim());
+            console.log("Canvas created successfully:", response);
+            
+            // Clear form and close dialog
             setNewCanvasName('');
             setIsCreating(false);
+            setIsLoading(false);
+            
+            // Refresh canvas list to show the new canvas
+            await fetchCanvases();
             
             // Notify App to refresh graph/settings
-            onSwitch(); 
+            if (onSwitch) {
+                onSwitch(); 
+            }
             
             // Close the modal so user sees the new canvas
-            onClose();
+            if (onClose) {
+                onClose();
+            }
         } catch (error) {
             console.error("Failed to create canvas", error);
+            setIsLoading(false);
+            const errorMessage = error.response?.data?.detail || error.message || "Failed to create canvas";
+            alert(`Error creating canvas: ${errorMessage}`);
         }
     };
 
@@ -159,10 +180,17 @@ const CanvasManager = ({ isOpen, onClose, onSwitch }) => {
                                 </button>
                                 <button 
                                     onClick={handleCreate}
-                                    disabled={!newCanvasName.trim()}
-                                    className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    disabled={!newCanvasName.trim() || isLoading}
+                                    className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
-                                    Create Canvas
+                                    {isLoading ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            Creating...
+                                        </>
+                                    ) : (
+                                        'Create Canvas'
+                                    )}
                                 </button>
                             </div>
                         </div>
