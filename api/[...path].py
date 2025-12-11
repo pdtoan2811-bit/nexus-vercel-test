@@ -65,19 +65,32 @@ try:
     mangum_handler = Mangum(app, lifespan="off", text_mime_types=False)
     logger.info("Handler initialized successfully")
     
-    # Create handler function at module level - Vercel validates this
+    # Create a callable class wrapper to help with Vercel's introspection
+    class HandlerWrapper:
+        """Wrapper class to help Vercel's handler validation"""
+        def __init__(self, mangum_handler):
+            self.mangum_handler = mangum_handler
+        
+        def __call__(self, event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+            """Vercel serverless function handler"""
+            try:
+                result = self.mangum_handler(event, context)
+                return result
+            except Exception as e:
+                logger.error(f"Handler execution error: {e}", exc_info=True)
+                return {
+                    "statusCode": 500,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": f'{{"error": "Handler execution failed: {str(e)}"}}'
+                }
+    
+    # Create handler instance
+    handler_wrapper = HandlerWrapper(mangum_handler)
+    
+    # Expose as a function for Vercel compatibility
     def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         """Vercel serverless function handler"""
-        try:
-            result = mangum_handler(event, context)
-            return result
-        except Exception as e:
-            logger.error(f"Handler execution error: {e}", exc_info=True)
-            return {
-                "statusCode": 500,
-                "headers": {"Content-Type": "application/json"},
-                "body": f'{{"error": "Handler execution failed: {str(e)}"}}'
-            }
+        return handler_wrapper(event, context)
     
 except Exception as handler_error:
     logger.error(f"Failed to create handler: {handler_error}", exc_info=True)
