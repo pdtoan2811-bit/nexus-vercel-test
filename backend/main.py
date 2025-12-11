@@ -86,6 +86,20 @@ def initialize_components():
 # Initialize on startup
 initialize_components()
 
+# Decorator to check if weaver is initialized
+def require_weaver(func):
+    """Decorator to ensure weaver is initialized before calling endpoint"""
+    def wrapper(*args, **kwargs):
+        if not weaver:
+            logger.error(f"Weaver not initialized when {func.__name__} was called")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Service unavailable: Weaver not initialized. Error: {init_error[:500] if init_error else 'Unknown error during initialization'}"
+            )
+        return func(*args, **kwargs)
+    wrapper.__name__ = func.__name__
+    return wrapper
+
 # In-Memory Session Storage (Could be moved to file as well for persistence)
 # We will now use this only for active sessions, but persist them on creation/update
 sessions_db: Dict[str, Dict] = {}
@@ -225,14 +239,9 @@ def update_node_positions(positions: Dict[str, Dict[str, float]]):
     raise HTTPException(status_code=400, detail="Failed to update positions")
 
 @app.get("/api/v2/context")
+@require_weaver
 def get_context_registry():
     """Returns the current hierarchy (Topics/Modules)."""
-    if not weaver:
-        logger.error("Weaver not initialized when /context endpoint called")
-        raise HTTPException(
-            status_code=503, 
-            detail=f"Weaver not initialized. Init error: {init_error if init_error else 'Unknown'}"
-        )
     try:
         if not hasattr(weaver, 'registry'):
             raise HTTPException(status_code=500, detail="Weaver registry not available")
@@ -242,14 +251,9 @@ def get_context_registry():
         raise HTTPException(status_code=500, detail=f"Failed to get context: {str(e)}")
 
 @app.get("/api/v2/settings")
+@require_weaver
 def get_settings():
     """Returns the global application settings."""
-    if not weaver:
-        logger.error("Weaver not initialized when /settings endpoint called")
-        raise HTTPException(
-            status_code=503, 
-            detail=f"Weaver not initialized. Init error: {init_error if init_error else 'Unknown'}"
-        )
     try:
         if not hasattr(weaver, 'settings'):
             raise HTTPException(status_code=500, detail="Weaver settings not available")
