@@ -62,14 +62,25 @@ try:
         mangum_handler = Mangum(app, lifespan="off", text_mime_types=False)
         logger.info("Handler initialized successfully")
         
-        # Wrap Mangum handler to ensure it's a proper callable
-        # This helps with Vercel's internal handler validation
+        # Create handler function that Vercel can validate
+        # Use a lambda-free function to avoid introspection issues
         def handler(event, context):
-            return mangum_handler(event, context)
+            try:
+                result = mangum_handler(event, context)
+                return result
+            except Exception as e:
+                logger.error(f"Handler execution error: {e}", exc_info=True)
+                return {
+                    "statusCode": 500,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": f'{{"error": "Handler execution failed: {str(e)}"}}'
+                }
         
-        # Ensure handler has proper attributes for Vercel validation
+        # Set proper function attributes for Vercel introspection
         handler.__name__ = "handler"
         handler.__module__ = __name__
+        handler.__qualname__ = "handler"
+        handler.__annotations__ = {}
         
     except Exception as handler_error:
         logger.error(f"Failed to create handler: {handler_error}", exc_info=True)
@@ -80,6 +91,8 @@ try:
                 "headers": {"Content-Type": "application/json"},
                 "body": f'{{"error": "Handler initialization failed: {str(handler_error)}"}}'
             }
+        error_handler.__name__ = "handler"
+        error_handler.__module__ = __name__
         handler = error_handler
 
 except Exception as e:
