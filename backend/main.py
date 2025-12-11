@@ -82,6 +82,32 @@ class CanvasCreateRequest(BaseModel):
 def read_root():
     return {"status": "Nexus Core Operational", "version": "2.0.4"}
 
+@app.get("/api/v2/health")
+def health_check():
+    """Health check endpoint for debugging"""
+    import os
+    from core.storage_adapter import get_storage_info
+    
+    health = {
+        "status": "ok",
+        "version": "2.0.4",
+        "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
+        "storage": get_storage_info(),
+        "vercel_env": os.getenv("VERCEL", "false")
+    }
+    
+    try:
+        # Test if components are working
+        health["weaver_initialized"] = weaver is not None
+        health["chat_bridge_initialized"] = chat_bridge is not None
+        if chat_bridge:
+            health["chat_bridge_model_available"] = chat_bridge.model is not None
+    except Exception as e:
+        health["error"] = str(e)
+        health["status"] = "error"
+    
+    return health
+
 @app.get("/api/v2/canvases")
 def list_canvases():
     """Returns a list of all available canvases."""

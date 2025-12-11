@@ -25,6 +25,8 @@ class ChatBridge:
     def __init__(self, weaver: Weaver):
         self.weaver = weaver
         self.api_key = os.getenv("GEMINI_API_KEY")
+        self.model = None
+        
         if self.api_key:
             try:
                 genai.configure(api_key=self.api_key)
@@ -32,10 +34,11 @@ class ChatBridge:
                 self.model = genai.GenerativeModel('gemini-2.5-flash')
                 logger.info("ChatBridge initialized successfully with model: gemini-2.5-flash")
             except Exception as e:
-                logger.error(f"Failed to configure Gemini: {e}")
+                logger.error(f"Failed to configure Gemini: {e}", exc_info=True)
                 self.model = None
         else:
-            logger.warning("GEMINI_API_KEY not found environment variable. LLM features will be mocked.")
+            logger.warning("GEMINI_API_KEY not found in environment variables. LLM features will be limited.")
+            logger.warning("Set GEMINI_API_KEY in Vercel project settings → Environment Variables")
             self.model = None
 
     def calculate_context(self, selected_nodes: List[str], depth: int) -> Dict[str, Any]:
@@ -134,6 +137,16 @@ class ChatBridge:
         }}
         """
         
+        if not self.model:
+            logger.warning("Gemini model not available. Returning default metadata.")
+            return {
+                "title": "Untitled Document",
+                "summary": "Content ingested without AI analysis (GEMINI_API_KEY not configured)",
+                "tags": [],
+                "module": "General",
+                "main_topic": "Uncategorized"
+            }
+        
         try:
             logger.info("Sending metadata extraction request to Gemini...")
             response = await self.model.generate_content_async(prompt)
@@ -143,7 +156,14 @@ class ChatBridge:
             return data
         except Exception as e:
             logger.error(f"Metadata extraction failed: {e}", exc_info=True)
-            return {}
+            # Return fallback metadata instead of empty dict
+            return {
+                "title": "Untitled Document",
+                "summary": f"Content ingested (AI analysis failed: {str(e)})",
+                "tags": [],
+                "module": "General",
+                "main_topic": "Uncategorized"
+            }
 
     async def analyze_image(self, image_bytes: bytes, image_format: str = "PNG") -> Dict[str, Any]:
         """
