@@ -58,7 +58,8 @@ try:
     # Initialize handler for Vercel
     # Vercel Python functions expect 'handler' to be the entry point
     try:
-        handler = Mangum(app, lifespan="off")
+        # Use text_mime_types=False to avoid MIME type issues
+        handler = Mangum(app, lifespan="off", text_mime_types=False)
         logger.info("Handler initialized successfully")
     except Exception as handler_error:
         logger.error(f"Failed to create handler: {handler_error}", exc_info=True)
