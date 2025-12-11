@@ -47,8 +47,13 @@ THUMBNAILS_DIR = DATA_DIR / "thumbnails"
 
 def ensure_dirs():
     """Ensure all required directories exist"""
-    CANVASES_DIR.mkdir(parents=True, exist_ok=True)
-    THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        CANVASES_DIR.mkdir(parents=True, exist_ok=True)
+        THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Directories ensured: {CANVASES_DIR}, {THUMBNAILS_DIR}")
+    except Exception as e:
+        logger.error(f"Failed to ensure directories: {e}", exc_info=True)
+        raise
 
 def get_storage_info() -> Dict[str, Any]:
     """Get information about current storage configuration"""

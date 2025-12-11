@@ -35,15 +35,27 @@ app.add_middleware(
 # Initialize Core Components
 weaver = None
 chat_bridge = None
+init_error = None
 
-try:
-    weaver = Weaver()
-    chat_bridge = ChatBridge(weaver)
-    logger.info("Core components initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize core components: {e}", exc_info=True)
-    # Don't raise - allow app to start, but endpoints will return errors
-    # This allows health check to work
+def initialize_components():
+    """Initialize components with retry logic"""
+    global weaver, chat_bridge, init_error
+    try:
+        logger.info("Starting component initialization...")
+        weaver = Weaver()
+        logger.info("Weaver initialized successfully")
+        chat_bridge = ChatBridge(weaver)
+        logger.info("ChatBridge initialized successfully")
+        logger.info("Core components initialized successfully")
+        init_error = None
+    except Exception as e:
+        logger.error(f"Failed to initialize core components: {e}", exc_info=True)
+        init_error = str(e)
+        # Don't raise - allow app to start, but endpoints will return errors
+        # This allows health check to work
+
+# Initialize on startup
+initialize_components()
 
 # In-Memory Session Storage (Could be moved to file as well for persistence)
 # We will now use this only for active sessions, but persist them on creation/update
@@ -89,6 +101,7 @@ def read_root():
 def health_check():
     """Health check endpoint for debugging"""
     import os
+    import traceback
     from core.storage_adapter import get_storage_info
     
     health = {
@@ -105,8 +118,12 @@ def health_check():
         health["chat_bridge_initialized"] = chat_bridge is not None
         if chat_bridge:
             health["chat_bridge_model_available"] = chat_bridge.model is not None
+        if init_error:
+            health["init_error"] = init_error
+            health["status"] = "degraded"
     except Exception as e:
         health["error"] = str(e)
+        health["traceback"] = traceback.format_exc()
         health["status"] = "error"
     
     return health
