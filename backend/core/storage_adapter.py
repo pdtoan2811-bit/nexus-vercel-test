@@ -25,7 +25,16 @@ else:
     BASE_STORAGE_DIR = Path(ROOT_DIR) / "data"
 
 # Ensure storage directory exists
-BASE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    BASE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Storage directory initialized: {BASE_STORAGE_DIR}")
+except Exception as e:
+    logger.error(f"Failed to create storage directory: {e}", exc_info=True)
+    # Fallback to /tmp if creation fails
+    if not IS_VERCEL:
+        BASE_STORAGE_DIR = Path("/tmp/nexus_data")
+        BASE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        logger.warning(f"Using fallback storage: {BASE_STORAGE_DIR}")
 
 DATA_DIR = BASE_STORAGE_DIR
 CANVASES_DIR = DATA_DIR / "canvases"

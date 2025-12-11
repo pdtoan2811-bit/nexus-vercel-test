@@ -33,8 +33,14 @@ app.add_middleware(
 )
 
 # Initialize Core Components
-weaver = Weaver()
-chat_bridge = ChatBridge(weaver)
+try:
+    weaver = Weaver()
+    chat_bridge = ChatBridge(weaver)
+    logger.info("Core components initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize core components: {e}", exc_info=True)
+    # Re-raise to prevent silent failures
+    raise
 
 # In-Memory Session Storage (Could be moved to file as well for persistence)
 # We will now use this only for active sessions, but persist them on creation/update
