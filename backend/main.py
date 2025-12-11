@@ -441,138 +441,144 @@ async def ingest_text(payload: TextIngestRequest):
         start_time = datetime.now()
         content = payload.content.strip()
         logger.info(f"Received ingest_text request: content length={len(content)}")
-    
-    # Check for YouTube URL
-    is_youtube = content.startswith("https://www.youtube.com/") or content.startswith("https://youtu.be/")
-    
-    node_title = "Text Note"
-    final_content = content
-    
-    # Extract Metadata
-    metadata = {} # Initialize metadata dict
-    
-    # 1. Try Web Scraping first if generic URL (and not YouTube)
-    if not is_youtube and (content.startswith("http://") or content.startswith("https://")):
-        try:
-            logger.info(f"Scraping webpage: {content}")
-            from core.scraper import scrape_webpage
-            scraped_data = scrape_webpage(content)
-            
-            # Update content and title from scrape
-            final_content = scraped_data["content"]
-            node_title = scraped_data["title"]
-            
-            # Store metadata
-            metadata["title"] = scraped_data["title"]
-            if scraped_data["description"]:
-                metadata["summary"] = scraped_data["description"]
-            if scraped_data["thumbnail"]:
-                metadata["thumbnail"] = scraped_data["thumbnail"]
+        
+        # Check for YouTube URL
+        is_youtube = content.startswith("https://www.youtube.com/") or content.startswith("https://youtu.be/")
+        
+        node_title = "Text Note"
+        final_content = content
+        
+        # Extract Metadata
+        metadata = {} # Initialize metadata dict
+        
+        # 1. Try Web Scraping first if generic URL (and not YouTube)
+        if not is_youtube and (content.startswith("http://") or content.startswith("https://")):
+            try:
+                logger.info(f"Scraping webpage: {content}")
+                from core.scraper import scrape_webpage
+                scraped_data = scrape_webpage(content)
                 
-            # Append source URL to content for reference
-            final_content = f"Source: {content}\n\n{final_content}"
-            
-        except Exception as e:
-            logger.error(f"Web scraping failed: {e}")
-            final_content = f"Source: {content}\n\n(Scraping Failed: {str(e)})"
+                # Update content and title from scrape
+                final_content = scraped_data["content"]
+                node_title = scraped_data["title"]
+                
+                # Store metadata
+                metadata["title"] = scraped_data["title"]
+                if scraped_data["description"]:
+                    metadata["summary"] = scraped_data["description"]
+                if scraped_data["thumbnail"]:
+                    metadata["thumbnail"] = scraped_data["thumbnail"]
+                    
+                # Append source URL to content for reference
+                final_content = f"Source: {content}\n\n{final_content}"
+                
+            except Exception as e:
+                logger.error(f"Web scraping failed: {e}")
+                final_content = f"Source: {content}\n\n(Scraping Failed: {str(e)})"
 
-    # 2. Handle YouTube specific logic
-    if is_youtube:
-        logger.info(f"Detected YouTube URL: {content}")
+        # 2. Handle YouTube specific logic
+        if is_youtube:
+            logger.info(f"Detected YouTube URL: {content}")
+            try:
+                # Analyze video
+                analysis = await chat_bridge.analyze_video(content)
+                final_content = f"Source: {content}\n\nAnalysis:\n{analysis}"
+                node_title = "Video Analysis"
+                
+                # Extract Video ID for metadata
+                import re
+                # Match standard, short, and embed URLs
+                video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", content)
+                if video_id_match:
+                     metadata["video_id"] = video_id_match.group(1)
+                     metadata["thumbnail"] = f"https://img.youtube.com/vi/{metadata['video_id']}/mqdefault.jpg"
+                     
+            except Exception as e:
+                logger.error(f"Video analysis failed: {e}")
+                final_content = f"Source: {content}\n\n(Analysis Failed: {str(e)})"
+        
+        # Extract Metadata via AI (Refinement)
+        # We send the final content (scraped text or video analysis) to Gemini for deeper structure (tags, module, better summary)
         try:
-            # Analyze video
-            analysis = await chat_bridge.analyze_video(content)
-            final_content = f"Source: {content}\n\nAnalysis:\n{analysis}"
-            node_title = "Video Analysis"
+            extracted_meta = await chat_bridge.extract_metadata(final_content)
+            logger.info(f"Metadata extraction completed: {extracted_meta.get('title', 'No title')}")
+        except Exception as e:
+            logger.error(f"Metadata extraction failed: {e}", exc_info=True)
+            # Use fallback metadata
+            extracted_meta = {
+                "title": "Untitled Document",
+                "summary": f"Content ingested (AI analysis failed: {str(e)})",
+                "tags": [],
+                "module": "General",
+                "main_topic": "Uncategorized"
+            }
+        
+        # --- Two-Way Interaction: Update Registry ---
+        if extracted_meta.get("proposed_new_topic"):
+            p = extracted_meta["proposed_new_topic"]
+            weaver.registry.update_structure(p["name"], description=p.get("description", ""))
             
-            # Extract Video ID for metadata
-            import re
-            # Match standard, short, and embed URLs
-            video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", content)
-            if video_id_match:
-                 metadata["video_id"] = video_id_match.group(1)
-                 metadata["thumbnail"] = f"https://img.youtube.com/vi/{metadata['video_id']}/mqdefault.jpg"
-                 
-        except Exception as e:
-            logger.error(f"Video analysis failed: {e}")
-            final_content = f"Source: {content}\n\n(Analysis Failed: {str(e)})"
-    
-    # Extract Metadata via AI (Refinement)
-    # We send the final content (scraped text or video analysis) to Gemini for deeper structure (tags, module, better summary)
-    try:
-        extracted_meta = await chat_bridge.extract_metadata(final_content)
-        logger.info(f"Metadata extraction completed: {extracted_meta.get('title', 'No title')}")
-    except Exception as e:
-        logger.error(f"Metadata extraction failed: {e}", exc_info=True)
-        # Use fallback metadata
-        extracted_meta = {
-            "title": "Untitled Document",
-            "summary": f"Content ingested (AI analysis failed: {str(e)})",
-            "tags": [],
-            "module": "General",
-            "main_topic": "Uncategorized"
+        if extracted_meta.get("proposed_new_module"):
+            p = extracted_meta["proposed_new_module"]
+            weaver.registry.update_structure(p["topic"], module_name=p["name"], description=p.get("description", ""))
+        
+        # Cleanup metadata (remove proposal keys from node data)
+        extracted_meta.pop("proposed_new_topic", None)
+        extracted_meta.pop("proposed_new_module", None)
+        # ---------------------------------------------
+        
+        # Merge AI metadata but preserve Scraped metadata if it's better (like Title)
+        # Actually, AI might generate a better summary than OG:description, so we can overwrite summary.
+        # But let's keep Title from OG if available as it's authoritative.
+        
+        current_title = metadata.get("title")
+        metadata.update(extracted_meta)
+        
+        if current_title and current_title != "Text Note":
+            metadata["title"] = current_title
+        
+        # If title wasn't extracted well, give it a timestamped default
+        if not metadata.get("title") or metadata.get("title") == "Unknown Title":
+            ts = datetime.now().strftime("%H:%M:%S")
+            metadata["title"] = f"{node_title} {ts}"
+            
+        final_meta = {
+            "module": payload.module if payload.module != "General" else metadata.get("module", "General"),
+            "main_topic": payload.main_topic if payload.main_topic != "Uncategorized" else metadata.get("main_topic", "Uncategorized"),
+            **metadata
         }
-    
-    # --- Two-Way Interaction: Update Registry ---
-    if extracted_meta.get("proposed_new_topic"):
-        p = extracted_meta["proposed_new_topic"]
-        weaver.registry.update_structure(p["name"], description=p.get("description", ""))
         
-    if extracted_meta.get("proposed_new_module"):
-        p = extracted_meta["proposed_new_module"]
-        weaver.registry.update_structure(p["topic"], module_name=p["name"], description=p.get("description", ""))
-    
-    # Cleanup metadata (remove proposal keys from node data)
-    extracted_meta.pop("proposed_new_topic", None)
-    extracted_meta.pop("proposed_new_module", None)
-    # ---------------------------------------------
-    
-    # Merge AI metadata but preserve Scraped metadata if it's better (like Title)
-    # Actually, AI might generate a better summary than OG:description, so we can overwrite summary.
-    # But let's keep Title from OG if available as it's authoritative.
-    
-    current_title = metadata.get("title")
-    metadata.update(extracted_meta)
-    
-    if current_title and current_title != "Text Note":
-        metadata["title"] = current_title
-    
-    # If title wasn't extracted well, give it a timestamped default
-    if not metadata.get("title") or metadata.get("title") == "Unknown Title":
-        ts = datetime.now().strftime("%H:%M:%S")
-        metadata["title"] = f"{node_title} {ts}"
+        # Create Node ID
+        # Use title as base for ID if available, else random
+        base_id = metadata.get("title", "NOTE").replace(" ", "_").upper()[:20]
+        node_id = f"{base_id}_{uuid4().hex[:4]}"
         
-    final_meta = {
-        "module": payload.module if payload.module != "General" else metadata.get("module", "General"),
-        "main_topic": payload.main_topic if payload.main_topic != "Uncategorized" else metadata.get("main_topic", "Uncategorized"),
-        **metadata
-    }
-    
-    # Create Node ID
-    # Use title as base for ID if available, else random
-    base_id = metadata.get("title", "NOTE").replace(" ", "_").upper()[:20]
-    node_id = f"{base_id}_{uuid4().hex[:4]}"
-    
-    try:
-        weaver.add_document_node(node_id, final_content, final_meta)
-        
-        # --- AUTO-LINKING ---
         try:
-            candidates = weaver.get_node_summaries(exclude_id=node_id)
-            current_node_summary = {"id": node_id, **final_meta}
-            suggestions = await chat_bridge.detect_relationships(current_node_summary, candidates)
-            for link in suggestions:
-                target = link.get("target_id")
-                justification = link.get("justification")
-                if target and justification:
-                    weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
+            weaver.add_document_node(node_id, final_content, final_meta)
+            
+            # --- AUTO-LINKING ---
+            try:
+                candidates = weaver.get_node_summaries(exclude_id=node_id)
+                current_node_summary = {"id": node_id, **final_meta}
+                suggestions = await chat_bridge.detect_relationships(current_node_summary, candidates)
+                for link in suggestions:
+                    target = link.get("target_id")
+                    justification = link.get("justification")
+                    if target and justification:
+                        weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
+            except Exception as e:
+                logger.error(f"Auto-linking failed: {e}", exc_info=True)
+                # Don't fail the entire request if auto-linking fails
+            # --------------------
+            
+            return {"status": "success", "node_id": node_id, "message": "Content ingested"}
+            
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Auto-linking failed: {e}", exc_info=True)
-            # Don't fail the entire request if auto-linking fails
-        # --------------------
-        
-        return {"status": "success", "node_id": node_id, "message": "Content ingested"}
-        
+            logger.error(f"Failed to add node: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to add node: {str(e)}")
+            
     except HTTPException:
         raise
     except Exception as e:
