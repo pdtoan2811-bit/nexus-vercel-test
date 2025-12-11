@@ -56,17 +56,30 @@ init_error = None
 def initialize_components():
     """Initialize components with retry logic"""
     global weaver, chat_bridge, init_error
+    import traceback
     try:
         logger.info("Starting component initialization...")
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        logger.info(f"Python path: {sys.path[:3]}")  # First 3 entries
+        
+        # Try to initialize Weaver
+        logger.info("Creating Weaver instance...")
         weaver = Weaver()
         logger.info("Weaver initialized successfully")
+        
+        # Try to initialize ChatBridge
+        logger.info("Creating ChatBridge instance...")
         chat_bridge = ChatBridge(weaver)
         logger.info("ChatBridge initialized successfully")
+        
         logger.info("Core components initialized successfully")
         init_error = None
     except Exception as e:
-        logger.error(f"Failed to initialize core components: {e}", exc_info=True)
-        init_error = str(e)
+        error_trace = traceback.format_exc()
+        logger.error(f"Failed to initialize core components: {e}")
+        logger.error(f"Full traceback:\n{error_trace}")
+        init_error = f"{str(e)}\n\nTraceback:\n{error_trace}"
         # Don't raise - allow app to start, but endpoints will return errors
         # This allows health check to work
 
@@ -112,6 +125,16 @@ class CanvasCreateRequest(BaseModel):
 @app.get("/")
 def read_root():
     return {"status": "Nexus Core Operational", "version": "2.0.4"}
+
+@app.get("/api/v2/test")
+def test_endpoint():
+    """Simple test endpoint that doesn't require weaver"""
+    return {
+        "status": "ok",
+        "message": "API is working",
+        "weaver_initialized": weaver is not None,
+        "init_error": init_error
+    }
 
 @app.get("/api/v2/health")
 def health_check():
