@@ -23,15 +23,21 @@ logger = logging.getLogger("NexusAPI")
 
 app = FastAPI(title="Nexus Core API", version="2.0.4")
 
-# Global exception handler
+# Global exception handler for unhandled exceptions
+from fastapi.responses import JSONResponse
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return {
-        "error": str(exc),
-        "type": type(exc).__name__,
-        "detail": "An unexpected error occurred. Check server logs for details."
-    }
+    logger.error(f"Unhandled exception in {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "type": type(exc).__name__,
+            "detail": "An unexpected error occurred. Check server logs for details.",
+            "path": str(request.url.path)
+        }
+    )
 
 # CORS
 app.add_middleware(
