@@ -586,6 +586,7 @@ async def ingest_text(payload: TextIngestRequest):
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
 
 @app.post("/api/v2/ingest/upload")
+@require_weaver
 async def upload_document(
     file: UploadFile = File(...), 
     module: str = Form("General"),
