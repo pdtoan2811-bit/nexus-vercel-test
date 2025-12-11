@@ -1,5 +1,11 @@
 {
-  "dependencies": {
-    "remark-gfm": "^4.0.1"
+  "name": "nexus-on-vercel",
+  "version": "2.0.0",
+  "description": "Nexus Core v2.0 - Knowledge Graph Platform",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

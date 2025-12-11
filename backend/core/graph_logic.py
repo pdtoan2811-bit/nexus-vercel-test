@@ -6,16 +6,18 @@ import os
 import shutil
 import random
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# FIX: Use Absolute Path to prevent ambiguity
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # Points to backend/
-ROOT_DIR = os.path.dirname(BASE_DIR) # Points to project root/
-DATA_DIR = os.path.join(ROOT_DIR, "data")
-CANVASES_DIR = os.path.join(DATA_DIR, "canvases")
-CANVAS_INDEX_FILE = os.path.join(DATA_DIR, "canvases.json")
-SETTINGS_FILE = os.path.join(DATA_DIR, "nexus_settings.json")
+# Use storage adapter for Vercel compatibility
+from .storage_adapter import (
+    DATA_DIR, CANVASES_DIR, CANVAS_INDEX_FILE, SETTINGS_FILE, 
+    THUMBNAILS_DIR, ensure_dirs, IS_VERCEL
+)
+
+# Ensure directories exist
+ensure_dirs()
 
 class SettingsRegistry:
     """
@@ -26,14 +28,11 @@ class SettingsRegistry:
         self.settings = self._load_settings()
 
     def _ensure_data_dir(self):
-        if not os.path.exists(DATA_DIR):
-            try:
-                os.makedirs(DATA_DIR)
-            except OSError as e:
-                logger.error(f"Failed to create data directory: {e}")
+        # Directories are ensured by storage_adapter
+        pass
 
     def _load_settings(self) -> Dict[str, Any]:
-        if os.path.exists(SETTINGS_FILE):
+        if SETTINGS_FILE.exists():
             try:
                 with open(SETTINGS_FILE, 'r') as f:
                     return json.load(f)
@@ -81,11 +80,11 @@ class CanvasRegistry:
         self.index = self._load_index()
 
     def _ensure_dirs(self):
-        if not os.path.exists(CANVASES_DIR):
-            os.makedirs(CANVASES_DIR)
+        # Directories are ensured by storage_adapter
+        pass
 
     def _load_index(self) -> Dict[str, Any]:
-        if os.path.exists(CANVAS_INDEX_FILE):
+        if CANVAS_INDEX_FILE.exists():
             try:
                 with open(CANVAS_INDEX_FILE, 'r') as f:
                     return json.load(f)
@@ -151,9 +150,9 @@ class CanvasRegistry:
             if self.index["active_id"] == canvas_id:
                 self.index["active_id"] = "default"
             self._save_index(self.index)
-            path = os.path.join(CANVASES_DIR, canvas_id)
-            if os.path.exists(path):
-                shutil.rmtree(path)
+            path = Path(CANVASES_DIR) / canvas_id
+            if path.exists():
+                shutil.rmtree(str(path))
             return True
         return False
 
@@ -161,7 +160,7 @@ class ContextRegistry:
     """Manages the persistent hierarchy of Topics and Modules PER CANVAS."""
     def __init__(self, canvas_id: str):
         self.canvas_id = canvas_id
-        self.file_path = os.path.join(CANVASES_DIR, canvas_id, "context.json")
+        self.file_path = Path(CANVASES_DIR) / canvas_id / "context.json"
         self._ensure_dir()
         self.colors = [
             "#0A84FF", # System Blue
@@ -178,14 +177,13 @@ class ContextRegistry:
 
     def _ensure_dir(self):
         dirname = os.path.dirname(self.file_path)
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
+        dirname.mkdir(parents=True, exist_ok=True)
 
     def _get_random_color(self):
         return random.choice(self.colors)
 
     def _load_context(self) -> Dict[str, Any]:
-        if os.path.exists(self.file_path):
+        if self.file_path.exists():
             try:
                 with open(self.file_path, 'r') as f:
                     return json.load(f)
@@ -193,8 +191,8 @@ class ContextRegistry:
                 logger.error(f"Failed to load context: {e}")
         
         # Check for legacy global context to migrate
-        legacy_path = os.path.join(DATA_DIR, "nexus_context.json")
-        if self.canvas_id == "default" and os.path.exists(legacy_path):
+        legacy_path = Path(DATA_DIR) / "nexus_context.json"
+        if self.canvas_id == "default" and legacy_path.exists():
              logger.info("Migrating legacy context to default canvas...")
              try:
                  with open(legacy_path, 'r') as f:
@@ -277,11 +275,11 @@ class Weaver:
 
     def load_active_canvas(self):
         self.active_canvas_id = self.canvas_registry.get_active_id()
-        self.graph_file = os.path.join(CANVASES_DIR, self.active_canvas_id, "graph.json")
-        self.chat_file = os.path.join(CANVASES_DIR, self.active_canvas_id, "chat.json")
+        self.graph_file = Path(CANVASES_DIR) / self.active_canvas_id / "graph.json"
+        self.chat_file = Path(CANVASES_DIR) / self.active_canvas_id / "chat.json"
         
         # Ensure dir
-        os.makedirs(os.path.dirname(self.graph_file), exist_ok=True)
+        self.graph_file.parent.mkdir(parents=True, exist_ok=True)
         
         self.graph = self._load_graph_file()
         self.registry = ContextRegistry(self.active_canvas_id)
@@ -304,7 +302,7 @@ class Weaver:
         return self.canvas_registry.delete_canvas(canvas_id)
 
     def _load_graph_file(self):
-        if os.path.exists(self.graph_file):
+        if self.graph_file.exists():
             try:
                 with open(self.graph_file, 'r') as f:
                     data = json.load(f)
@@ -314,8 +312,8 @@ class Weaver:
                 return nx.DiGraph()
         
         # Migration: Check root
-        legacy_path = os.path.join(DATA_DIR, "nexus_graph.json")
-        if self.active_canvas_id == "default" and os.path.exists(legacy_path):
+        legacy_path = Path(DATA_DIR) / "nexus_graph.json"
+        if self.active_canvas_id == "default" and legacy_path.exists():
              logger.info("Migrating legacy graph to default canvas...")
              try:
                  with open(legacy_path, 'r') as f:
@@ -390,7 +388,7 @@ class Weaver:
 
     def _load_chat_history(self) -> List[Dict]:
         """Loads chat history from disk."""
-        if os.path.exists(self.chat_file):
+        if self.chat_file.exists():
             try:
                 with open(self.chat_file, 'r') as f:
                     return json.load(f)

@@ -6,13 +6,31 @@
 - **Cycle:** Updated after every completed user request/feature implementation.
 
 ## Current Version
-**Version:** v2.0.9
-**Timestamp:** 2025-12-09 13:00:00 UTC
-**Status:** Alpha Release (Multi-Canvas Support + AI Hierarchy Tools)
+**Version:** v2.1.0
+**Timestamp:** 2025-01-XX XX:XX:XX UTC
+**Status:** Vercel Deployment Ready (Serverless Functions + Storage Adapter)
 
 ---
 
 ## Recent Updates
+
+### v2.1.0 (Vercel Deployment Support)
+- [x] **Vercel Serverless Functions**:
+    - [x] Created `api/[...path].py` handler using Mangum for FastAPI compatibility
+    - [x] Updated `vercel.json` configuration for routing and builds
+    - [x] Added `requirements.txt` at root level for Python dependencies
+- [x] **Storage Adapter**:
+    - [x] Created `backend/core/storage_adapter.py` for serverless environment compatibility
+    - [x] Automatic detection of Vercel environment
+    - [x] Fallback to `/tmp` for ephemeral storage on Vercel
+    - [x] Updated all file paths to use Path objects for cross-platform compatibility
+- [x] **Frontend Configuration**:
+    - [x] Updated `frontend/src/api.js` to use relative URLs for Vercel deployment
+    - [x] Maintained localhost fallback for development
+- [x] **Documentation**:
+    - [x] Created `VERCEL_DEPLOYMENT.md` with deployment instructions
+    - [x] Added `.vercelignore` for build optimization
+    - [x] Documented storage limitations and solutions
 
 ### v2.0.9 (Canvas Management & AI Tools)
 - [x] **Multi-Canvas Management** (REQ-017):

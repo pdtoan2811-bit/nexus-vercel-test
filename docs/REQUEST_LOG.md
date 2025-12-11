@@ -172,3 +172,31 @@
     - Created `CanvasManager` component: A visual gallery to browse, create, delete, and switch canvases.
     - Added "Manage Canvases" button to the main toolbar.
     - Implemented persistence logic ensuring each canvas retains its own Graph and Context Registry.
+
+## Request ID: REQ-018
+**Date:** 2025-01-XX
+**User Query:** "I want to modify this one for me to easy deploy on vercel"
+**Deliverables:**
+- **Vercel Serverless Functions**:
+    - Created `api/[...path].py` handler using Mangum to wrap FastAPI for Vercel compatibility
+    - Updated `vercel.json` with proper routing and build configuration
+    - Added `requirements.txt` at root level for Python dependencies (including `mangum`)
+- **Storage Adapter**:
+    - Created `backend/core/storage_adapter.py` to handle serverless environment
+    - Automatic detection of Vercel environment (`VERCEL` env variable)
+    - Uses `/tmp/nexus_data` for ephemeral storage on Vercel
+    - Falls back to `data/` directory for local development
+    - Updated all file path references to use `Path` objects for cross-platform compatibility
+- **Frontend Configuration**:
+    - Updated `frontend/src/api.js` to use relative URLs (`/api/v2`) for production
+    - Maintained localhost fallback (`http://localhost:8000/api/v2`) for development
+    - Uses `import.meta.env.DEV` to detect environment
+- **Build Configuration**:
+    - Created root-level `package.json` for Vercel build settings
+    - Added `.vercelignore` to exclude unnecessary files from deployment
+    - Configured build command: `cd frontend && npm install && npm run build`
+    - Set output directory: `frontend/dist`
+- **Documentation**:
+    - Created `VERCEL_DEPLOYMENT.md` with comprehensive deployment guide
+    - Documented storage limitations and solutions (Vercel Blob, external databases)
+    - Updated `IMPLEMENTATION_PLAN.md` to v2.1.0 with deployment changes

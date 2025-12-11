@@ -1,12 +1,11 @@
 fastapi
-uvicorn
+mangum
 networkx
 google-generativeai
 pydantic
 python-dotenv
-motor
 python-multipart
 requests
 beautifulsoup4
 Pillow
-mangum
+

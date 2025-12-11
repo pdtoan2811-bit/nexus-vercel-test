@@ -29,6 +29,8 @@ Before running the application, you need to set up your Google Gemini API key:
 
 ## Setup & Run
 
+### Local Development
+
 We provide a robust launcher for Windows.
 
 1.  **Run the Launcher:**
@@ -42,6 +44,18 @@ We provide a robust launcher for Windows.
     -   Install dependencies.
     -   Launch Backend and Frontend servers.
     -   Open your browser to `http://localhost:5173`.
+
+### Vercel Deployment
+
+For deploying to Vercel, see [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for detailed instructions.
+
+**Quick Start:**
+1. Push your code to a Git repository
+2. Import the project in Vercel
+3. Set `GEMINI_API_KEY` environment variable
+4. Deploy!
+
+**Note:** Vercel uses ephemeral storage (`/tmp`). For production, consider using Vercel Blob Storage or an external database (see deployment guide).
 
 ## Features
 

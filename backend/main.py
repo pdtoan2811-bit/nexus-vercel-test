@@ -171,12 +171,12 @@ def export_canvas():
     import tempfile
     from pathlib import Path
     
-    # Import constants from graph_logic
-    from core.graph_logic import CANVASES_DIR, DATA_DIR, SETTINGS_FILE, CANVAS_INDEX_FILE
+    # Import constants from storage_adapter
+    from core.storage_adapter import CANVASES_DIR, DATA_DIR, SETTINGS_FILE, CANVAS_INDEX_FILE, THUMBNAILS_DIR
     
     canvas_id = weaver.active_canvas_id
     canvas_dir = Path(CANVASES_DIR) / canvas_id
-    thumbnails_dir = Path(DATA_DIR) / "thumbnails"
+    thumbnails_dir = THUMBNAILS_DIR
     
     # Create temporary zip file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -501,9 +501,10 @@ async def upload_image(
         # Save image to disk and set thumbnail path
         import base64
         from pathlib import Path
+        from core.storage_adapter import THUMBNAILS_DIR
         
-        # Create thumbnails directory if it doesn't exist
-        thumbnails_dir = Path("data/thumbnails")
+        # Use storage adapter for thumbnails
+        thumbnails_dir = THUMBNAILS_DIR
         thumbnails_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate unique filename
@@ -583,8 +584,9 @@ async def get_thumbnail(filename: str):
     """
     from fastapi.responses import FileResponse
     from pathlib import Path
+    from core.storage_adapter import THUMBNAILS_DIR
     
-    thumbnail_path = Path("data/thumbnails") / filename
+    thumbnail_path = THUMBNAILS_DIR / filename
     if not thumbnail_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     
@@ -835,8 +837,9 @@ async def update_node(
             
             # Save thumbnail
             from pathlib import Path
+            from core.storage_adapter import THUMBNAILS_DIR
             
-            thumbnails_dir = Path("data/thumbnails")
+            thumbnails_dir = THUMBNAILS_DIR
             thumbnails_dir.mkdir(parents=True, exist_ok=True)
             
             # Generate unique filename
