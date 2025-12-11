@@ -282,8 +282,10 @@ async def ingest_text(payload: TextIngestRequest):
     """
     Ingests raw text or a YouTube URL.
     """
-    start_time = datetime.now()
-    content = payload.content.strip()
+    try:
+        start_time = datetime.now()
+        content = payload.content.strip()
+        logger.info(f"Received ingest_text request: content length={len(content)}")
     
     # Check for YouTube URL
     is_youtube = content.startswith("https://www.youtube.com/") or content.startswith("https://youtu.be/")
@@ -342,7 +344,19 @@ async def ingest_text(payload: TextIngestRequest):
     
     # Extract Metadata via AI (Refinement)
     # We send the final content (scraped text or video analysis) to Gemini for deeper structure (tags, module, better summary)
-    extracted_meta = await chat_bridge.extract_metadata(final_content)
+    try:
+        extracted_meta = await chat_bridge.extract_metadata(final_content)
+        logger.info(f"Metadata extraction completed: {extracted_meta.get('title', 'No title')}")
+    except Exception as e:
+        logger.error(f"Metadata extraction failed: {e}", exc_info=True)
+        # Use fallback metadata
+        extracted_meta = {
+            "title": "Untitled Document",
+            "summary": f"Content ingested (AI analysis failed: {str(e)})",
+            "tags": [],
+            "module": "General",
+            "main_topic": "Uncategorized"
+        }
     
     # --- Two-Way Interaction: Update Registry ---
     if extracted_meta.get("proposed_new_topic"):
@@ -398,14 +412,17 @@ async def ingest_text(payload: TextIngestRequest):
                 if target and justification:
                     weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
         except Exception as e:
-            logger.error(f"Auto-linking failed: {e}")
+            logger.error(f"Auto-linking failed: {e}", exc_info=True)
+            # Don't fail the entire request if auto-linking fails
         # --------------------
         
         return {"status": "success", "node_id": node_id, "message": "Content ingested"}
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to ingest text: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to ingest text: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
 
 @app.post("/api/v2/ingest/upload")
 async def upload_document(
@@ -433,8 +450,19 @@ async def upload_document(
         logger.info(f"Read {len(content_str)} bytes. Extracting Metadata...")
         
         # AI Metadata Extraction
-        metadata = await chat_bridge.extract_metadata(content_str)
-        logger.info(f"Extracted Metadata: {metadata}")
+        try:
+            metadata = await chat_bridge.extract_metadata(content_str)
+            logger.info(f"Extracted Metadata: {metadata}")
+        except Exception as e:
+            logger.error(f"Metadata extraction failed: {e}", exc_info=True)
+            # Use fallback metadata
+            metadata = {
+                "title": filename or "Untitled Document",
+                "summary": f"Content ingested (AI analysis failed: {str(e)})",
+                "tags": [],
+                "module": "General",
+                "main_topic": "Uncategorized"
+            }
         
         # --- Two-Way Interaction: Update Registry ---
         if metadata.get("proposed_new_topic"):

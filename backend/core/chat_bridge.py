@@ -351,6 +351,10 @@ class ChatBridge:
         If no connections, return [].
         """
 
+        if not self.model:
+            logger.warning("Gemini model not available. Skipping relationship detection.")
+            return []
+        
         try:
             logger.info(f"Detecting relationships for {new_node.get('id')} against {len(candidates)} candidates...")
             response = await self.model.generate_content_async(prompt)
