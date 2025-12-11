@@ -11,6 +11,10 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 
+# Setup Logging FIRST - before any logger usage
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("NexusAPI")
+
 # Load environment variables from .env file
 load_dotenv(override=True)
 
@@ -24,10 +28,6 @@ except ImportError as ie:
     # Set to None so app can still start
     Weaver = None
     ChatBridge = None
-
-# Setup Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("NexusAPI")
 
 app = FastAPI(title="Nexus Core API", version="2.0.4")
 
