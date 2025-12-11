@@ -24,8 +24,15 @@ class ChatBridge:
     """
     def __init__(self, weaver: Weaver):
         self.weaver = weaver
-        self.api_key = os.getenv("GEMINI_API_KEY")
+        # Try multiple ways to get the API key
+        self.api_key = (
+            os.getenv("GEMINI_API_KEY") or 
+            os.environ.get("GEMINI_API_KEY", "").strip()
+        )
         self.model = None
+        
+        logger.info(f"GEMINI_API_KEY present: {bool(self.api_key)}")
+        logger.info(f"GEMINI_API_KEY length: {len(self.api_key) if self.api_key else 0}")
         
         if self.api_key:
             try:
@@ -39,6 +46,10 @@ class ChatBridge:
         else:
             logger.warning("GEMINI_API_KEY not found in environment variables. LLM features will be limited.")
             logger.warning("Set GEMINI_API_KEY in Vercel project settings → Environment Variables")
+            # Log available env vars for debugging
+            gemini_vars = [k for k in os.environ.keys() if "GEMINI" in k.upper() or "API" in k.upper()]
+            if gemini_vars:
+                logger.info(f"Found related env vars: {', '.join(gemini_vars)}")
             self.model = None
 
     def calculate_context(self, selected_nodes: List[str], depth: int) -> Dict[str, Any]:
