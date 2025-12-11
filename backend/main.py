@@ -63,15 +63,33 @@ def initialize_components():
         logger.info(f"Current working directory: {os.getcwd()}")
         logger.info(f"Python path: {sys.path[:3]}")  # First 3 entries
         
+        # Check if we can import required modules
+        try:
+            from core.graph_logic import Weaver
+            from core.chat_bridge import ChatBridge
+            logger.info("Core modules imported successfully")
+        except ImportError as ie:
+            logger.error(f"Import error: {ie}", exc_info=True)
+            raise
+        
         # Try to initialize Weaver
         logger.info("Creating Weaver instance...")
-        weaver = Weaver()
-        logger.info("Weaver initialized successfully")
+        try:
+            weaver = Weaver()
+            logger.info("Weaver initialized successfully")
+        except Exception as weaver_error:
+            logger.error(f"Weaver initialization failed: {weaver_error}", exc_info=True)
+            raise
         
         # Try to initialize ChatBridge
         logger.info("Creating ChatBridge instance...")
-        chat_bridge = ChatBridge(weaver)
-        logger.info("ChatBridge initialized successfully")
+        try:
+            chat_bridge = ChatBridge(weaver)
+            logger.info("ChatBridge initialized successfully")
+        except Exception as bridge_error:
+            logger.error(f"ChatBridge initialization failed: {bridge_error}", exc_info=True)
+            # ChatBridge failure is not critical - weaver can work without it
+            chat_bridge = None
         
         logger.info("Core components initialized successfully")
         init_error = None
@@ -82,9 +100,17 @@ def initialize_components():
         init_error = f"{str(e)}\n\nTraceback:\n{error_trace}"
         # Don't raise - allow app to start, but endpoints will return errors
         # This allows health check to work
+        weaver = None
+        chat_bridge = None
 
-# Initialize on startup
-initialize_components()
+# Initialize on startup - wrap in try/except to prevent app crash
+try:
+    initialize_components()
+except Exception as e:
+    logger.error(f"Critical initialization error: {e}", exc_info=True)
+    weaver = None
+    chat_bridge = None
+    init_error = str(e)
 
 # Decorator to check if weaver is initialized
 def require_weaver(func):
