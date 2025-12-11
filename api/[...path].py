@@ -41,12 +41,15 @@ try:
 
 except Exception as e:
     logger.error(f"Failed to initialize handler: {e}", exc_info=True)
+    import traceback
+    error_trace = traceback.format_exc()
+    logger.error(f"Full traceback: {error_trace}")
     # Create a minimal error handler
     def error_handler(event, context):
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
-            "body": f'{{"error": "Initialization failed: {str(e)}"}}'
+            "body": f'{{"error": "Initialization failed: {str(e)}", "traceback": "{error_trace}"}}'
         }
     handler = error_handler
 

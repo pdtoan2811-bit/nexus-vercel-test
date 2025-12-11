@@ -23,6 +23,16 @@ logger = logging.getLogger("NexusAPI")
 
 app = FastAPI(title="Nexus Core API", version="2.0.4")
 
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return {
+        "error": str(exc),
+        "type": type(exc).__name__,
+        "detail": "An unexpected error occurred. Check server logs for details."
+    }
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -189,8 +199,14 @@ def update_node_positions(positions: Dict[str, Dict[str, float]]):
 def get_context_registry():
     """Returns the current hierarchy (Topics/Modules)."""
     if not weaver:
-        raise HTTPException(status_code=503, detail="Weaver not initialized. Check server logs.")
+        logger.error("Weaver not initialized when /context endpoint called")
+        raise HTTPException(
+            status_code=503, 
+            detail=f"Weaver not initialized. Init error: {init_error if init_error else 'Unknown'}"
+        )
     try:
+        if not hasattr(weaver, 'registry'):
+            raise HTTPException(status_code=500, detail="Weaver registry not available")
         return weaver.registry.context
     except Exception as e:
         logger.error(f"Error getting context: {e}", exc_info=True)
@@ -200,8 +216,14 @@ def get_context_registry():
 def get_settings():
     """Returns the global application settings."""
     if not weaver:
-        raise HTTPException(status_code=503, detail="Weaver not initialized. Check server logs.")
+        logger.error("Weaver not initialized when /settings endpoint called")
+        raise HTTPException(
+            status_code=503, 
+            detail=f"Weaver not initialized. Init error: {init_error if init_error else 'Unknown'}"
+        )
     try:
+        if not hasattr(weaver, 'settings'):
+            raise HTTPException(status_code=500, detail="Weaver settings not available")
         return weaver.settings.settings
     except Exception as e:
         logger.error(f"Error getting settings: {e}", exc_info=True)
