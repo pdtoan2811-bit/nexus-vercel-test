@@ -1,9 +1,0 @@
-{
-  "functions": {
-    "*.py": {
-      "runtime": "python3.9",
-      "includeFiles": "../backend/**"
-    }
-  }
-}
-
