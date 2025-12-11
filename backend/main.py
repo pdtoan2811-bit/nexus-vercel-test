@@ -14,8 +14,16 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv(override=True)
 
-from core.graph_logic import Weaver
-from core.chat_bridge import ChatBridge
+# Import core modules - these should not fail even if initialization does
+try:
+    from core.graph_logic import Weaver
+    from core.chat_bridge import ChatBridge
+    logger.info("Core modules imported successfully")
+except ImportError as ie:
+    logger.error(f"Failed to import core modules: {ie}", exc_info=True)
+    # Set to None so app can still start
+    Weaver = None
+    ChatBridge = None
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
@@ -63,14 +71,9 @@ def initialize_components():
         logger.info(f"Current working directory: {os.getcwd()}")
         logger.info(f"Python path: {sys.path[:3]}")  # First 3 entries
         
-        # Check if we can import required modules
-        try:
-            from core.graph_logic import Weaver
-            from core.chat_bridge import ChatBridge
-            logger.info("Core modules imported successfully")
-        except ImportError as ie:
-            logger.error(f"Import error: {ie}", exc_info=True)
-            raise
+        # Check if Weaver and ChatBridge are available
+        if Weaver is None or ChatBridge is None:
+            raise ImportError("Core modules (Weaver/ChatBridge) not available")
         
         # Try to initialize Weaver
         logger.info("Creating Weaver instance...")
