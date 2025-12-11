@@ -147,7 +147,9 @@ def test_endpoint():
         "status": "ok",
         "message": "API is working",
         "weaver_initialized": weaver is not None,
-        "init_error": init_error
+        "init_error": init_error[:1000] if init_error else None,  # Truncate long errors
+        "python_version": sys.version.split()[0],
+        "cwd": os.getcwd()
     }
 
 @app.get("/api/v2/health")
