@@ -33,14 +33,17 @@ app.add_middleware(
 )
 
 # Initialize Core Components
+weaver = None
+chat_bridge = None
+
 try:
     weaver = Weaver()
     chat_bridge = ChatBridge(weaver)
     logger.info("Core components initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize core components: {e}", exc_info=True)
-    # Re-raise to prevent silent failures
-    raise
+    # Don't raise - allow app to start, but endpoints will return errors
+    # This allows health check to work
 
 # In-Memory Session Storage (Could be moved to file as well for persistence)
 # We will now use this only for active sessions, but persist them on creation/update
@@ -138,16 +141,22 @@ def delete_canvas(canvas_id: str):
 @app.get("/api/v2/graph")
 def get_full_graph():
     """Returns the full graph for initial rendering."""
-    nodes = []
-    for n in weaver.graph.nodes():
-        node_data = dict(weaver.graph.nodes[n])
-        # Include position if it exists
-        if "position" in node_data:
-            nodes.append({"id": n, **node_data})
-        else:
-            nodes.append({"id": n, **node_data})
-    edges = [{"source": u, "target": v, **weaver.graph.edges[u, v]} for u, v in weaver.graph.edges()]
-    return {"nodes": nodes, "edges": edges}
+    if not weaver:
+        raise HTTPException(status_code=503, detail="Weaver not initialized. Check server logs.")
+    try:
+        nodes = []
+        for n in weaver.graph.nodes():
+            node_data = dict(weaver.graph.nodes[n])
+            # Include position if it exists
+            if "position" in node_data:
+                nodes.append({"id": n, **node_data})
+            else:
+                nodes.append({"id": n, **node_data})
+        edges = [{"source": u, "target": v, **weaver.graph.edges[u, v]} for u, v in weaver.graph.edges()]
+        return {"nodes": nodes, "edges": edges}
+    except Exception as e:
+        logger.error(f"Error getting graph: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get graph: {str(e)}")
 
 @app.post("/api/v2/nodes/positions")
 def update_node_positions(positions: Dict[str, Dict[str, float]]):
@@ -162,18 +171,36 @@ def update_node_positions(positions: Dict[str, Dict[str, float]]):
 @app.get("/api/v2/context")
 def get_context_registry():
     """Returns the current hierarchy (Topics/Modules)."""
-    return weaver.registry.context
+    if not weaver:
+        raise HTTPException(status_code=503, detail="Weaver not initialized. Check server logs.")
+    try:
+        return weaver.registry.context
+    except Exception as e:
+        logger.error(f"Error getting context: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get context: {str(e)}")
 
 @app.get("/api/v2/settings")
 def get_settings():
     """Returns the global application settings."""
-    return weaver.settings.settings
+    if not weaver:
+        raise HTTPException(status_code=503, detail="Weaver not initialized. Check server logs.")
+    try:
+        return weaver.settings.settings
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get settings: {str(e)}")
 
 @app.post("/api/v2/settings")
 def update_settings(updates: Dict[str, Any]):
     """Updates the global application settings."""
-    weaver.settings.update_settings(updates)
-    return {"status": "success", "message": "Settings updated", "settings": weaver.settings.settings}
+    if not weaver:
+        raise HTTPException(status_code=503, detail="Weaver not initialized. Check server logs.")
+    try:
+        weaver.settings.update_settings(updates)
+        return {"status": "success", "message": "Settings updated", "settings": weaver.settings.settings}
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update settings: {str(e)}")
 
 @app.post("/api/v2/save")
 def manual_save():

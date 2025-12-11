@@ -30,11 +30,14 @@ try:
     logger.info(f"Storage directory initialized: {BASE_STORAGE_DIR}")
 except Exception as e:
     logger.error(f"Failed to create storage directory: {e}", exc_info=True)
-    # Fallback to /tmp if creation fails
-    if not IS_VERCEL:
-        BASE_STORAGE_DIR = Path("/tmp/nexus_data")
+    # Always fallback to /tmp if creation fails (works on both local and Vercel)
+    BASE_STORAGE_DIR = Path("/tmp/nexus_data")
+    try:
         BASE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
         logger.warning(f"Using fallback storage: {BASE_STORAGE_DIR}")
+    except Exception as e2:
+        logger.error(f"Failed to create fallback storage: {e2}", exc_info=True)
+        raise
 
 DATA_DIR = BASE_STORAGE_DIR
 CANVASES_DIR = DATA_DIR / "canvases"
