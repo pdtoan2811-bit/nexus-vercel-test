@@ -8,15 +8,18 @@ from pathlib import Path
 
 # Add backend directory to path
 backend_path = Path(__file__).parent.parent / "backend"
-sys.path.insert(0, str(backend_path))
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
+
+# Also add current directory for imports
+root_path = Path(__file__).parent.parent
+if str(root_path) not in sys.path:
+    sys.path.insert(0, str(root_path))
 
 from mangum import Mangum
 from backend.main import app
 
 # Initialize handler for Vercel
+# Vercel Python functions expect 'handler' to be the entry point
 handler = Mangum(app, lifespan="off")
-
-def lambda_handler(event, context):
-    """AWS Lambda/Vercel handler"""
-    return handler(event, context)
 
