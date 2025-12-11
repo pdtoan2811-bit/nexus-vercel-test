@@ -184,31 +184,55 @@ def health_check():
     return health
 
 @app.get("/api/v2/canvases")
+@require_weaver
 def list_canvases():
     """Returns a list of all available canvases."""
-    return weaver.canvas_registry.list_canvases()
+    try:
+        return weaver.canvas_registry.list_canvases()
+    except Exception as e:
+        logger.error(f"Error listing canvases: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list canvases: {str(e)}")
 
 @app.post("/api/v2/canvases")
+@require_weaver
 def create_canvas(payload: CanvasCreateRequest):
     """Creates a new canvas."""
-    new_id = weaver.create_canvas(payload.name)
-    return {"status": "success", "canvas_id": new_id, "message": f"Canvas '{payload.name}' created"}
+    try:
+        new_id = weaver.create_canvas(payload.name)
+        return {"status": "success", "canvas_id": new_id, "message": f"Canvas '{payload.name}' created"}
+    except Exception as e:
+        logger.error(f"Error creating canvas: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create canvas: {str(e)}")
 
 @app.post("/api/v2/canvases/{canvas_id}/activate")
+@require_weaver
 def activate_canvas(canvas_id: str):
     """Switches the active canvas."""
-    if weaver.switch_canvas(canvas_id):
-        # When switching canvas, we need to clear session_db to avoid context mixups
-        sessions_db.clear() 
-        return {"status": "success", "message": f"Switched to canvas {canvas_id}"}
-    raise HTTPException(status_code=404, detail="Canvas not found")
+    try:
+        if weaver.switch_canvas(canvas_id):
+            # When switching canvas, we need to clear session_db to avoid context mixups
+            sessions_db.clear() 
+            return {"status": "success", "message": f"Switched to canvas {canvas_id}"}
+        raise HTTPException(status_code=404, detail="Canvas not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error activating canvas: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to activate canvas: {str(e)}")
 
 @app.delete("/api/v2/canvases/{canvas_id}")
+@require_weaver
 def delete_canvas(canvas_id: str):
     """Deletes a canvas."""
-    if weaver.delete_canvas(canvas_id):
-        return {"status": "success", "message": "Canvas deleted"}
-    raise HTTPException(status_code=400, detail="Cannot delete default canvas or canvas not found")
+    try:
+        if weaver.delete_canvas(canvas_id):
+            return {"status": "success", "message": "Canvas deleted"}
+        raise HTTPException(status_code=400, detail="Cannot delete default canvas or canvas not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting canvas: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete canvas: {str(e)}")
 
 @app.get("/api/v2/graph")
 def get_full_graph():
@@ -379,6 +403,7 @@ def export_canvas():
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.post("/api/v2/ingest/text")
+@require_weaver
 async def ingest_text(payload: TextIngestRequest):
     """
     Ingests raw text or a YouTube URL.
@@ -622,6 +647,7 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v2/ingest/image")
+@require_weaver
 async def upload_image(
     file: UploadFile = File(...), 
     module: str = Form("General"),
