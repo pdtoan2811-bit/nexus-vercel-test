@@ -176,7 +176,8 @@ class ContextRegistry:
         self.context = self._load_context()
 
     def _ensure_dir(self):
-        dirname = os.path.dirname(self.file_path)
+        # self.file_path is already a Path object, use .parent
+        dirname = self.file_path.parent
         dirname.mkdir(parents=True, exist_ok=True)
 
     def _get_random_color(self):
