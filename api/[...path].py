@@ -58,48 +58,32 @@ except Exception as import_error:
             }
         )
 
-# Initialize handler for Vercel at module level
-# Vercel Python functions expect 'handler' to be the entry point
+# Initialize Mangum handler
+_mangum_handler = None
 try:
-    # Use text_mime_types=False to avoid MIME type issues
-    mangum_handler = Mangum(app, lifespan="off", text_mime_types=False)
+    _mangum_handler = Mangum(app, lifespan="off", text_mime_types=False)
     logger.info("Handler initialized successfully")
-    
-    # Create a callable class wrapper to help with Vercel's introspection
-    class HandlerWrapper:
-        """Wrapper class to help Vercel's handler validation"""
-        def __init__(self, mangum_handler):
-            self.mangum_handler = mangum_handler
-        
-        def __call__(self, event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-            """Vercel serverless function handler"""
-            try:
-                result = self.mangum_handler(event, context)
-                return result
-            except Exception as e:
-                logger.error(f"Handler execution error: {e}", exc_info=True)
-                return {
-                    "statusCode": 500,
-                    "headers": {"Content-Type": "application/json"},
-                    "body": f'{{"error": "Handler execution failed: {str(e)}"}}'
-                }
-    
-    # Create handler instance
-    handler_wrapper = HandlerWrapper(mangum_handler)
-    
-    # Expose as a function for Vercel compatibility
-    def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-        """Vercel serverless function handler"""
-        return handler_wrapper(event, context)
-    
 except Exception as handler_error:
-    logger.error(f"Failed to create handler: {handler_error}", exc_info=True)
-    # Create fallback handler
-    def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-        """Fallback error handler"""
+    logger.error(f"Failed to create Mangum handler: {handler_error}", exc_info=True)
+    _mangum_handler = None
+
+# Define handler function at module level - must be simple for Vercel validation
+def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """Vercel serverless function handler - module level function"""
+    if _mangum_handler is None:
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
-            "body": f'{{"error": "Handler initialization failed: {str(handler_error)}"}}'
+            "body": '{"error": "Handler not initialized"}'
+        }
+    try:
+        result = _mangum_handler(event, context)
+        return result
+    except Exception as e:
+        logger.error(f"Handler execution error: {e}", exc_info=True)
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": f'{{"error": "Handler execution failed: {str(e)}"}}'
         }
 
